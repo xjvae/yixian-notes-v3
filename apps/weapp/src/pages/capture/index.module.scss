@@ -1,0 +1,96 @@
+@use '@/styles/variables.scss' as *;
+
+.container {
+  min-height: 100vh;
+  background: $color-bg-page;
+  padding: 0 $page-padding 320rpx;
+}
+
+// 笔记本选择
+.notebookSelect {
+  display: flex;
+  align-items: center;
+  height: 72rpx;
+  background: $color-primary-bg;
+  border-radius: $radius-round;
+  padding: 0 $spacing-md;
+  margin-top: $spacing-md;
+  align-self: flex-start;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+.notebookSelectText {
+  font-size: $font-size-sm;
+  color: $color-primary;
+  font-weight: $font-weight-medium;
+}
+
+// 编辑器卡片
+.editorCard {
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: $spacing-lg;
+  margin-top: $spacing-md;
+  box-shadow: $shadow-card;
+}
+
+.titleInput {
+  height: 88rpx;
+  font-size: $font-size-xl;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  border-bottom: 2rpx solid $color-divider;
+}
+
+.contentInput {
+  min-height: 400rpx;
+  margin-top: $spacing-md;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  line-height: $line-height-loose;
+  width: 100%;
+}
+
+// 字数
+.wordCount {
+  margin-top: $spacing-md;
+  text-align: right;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+// 底部提交栏（悬浮在 Dock 上方）
+.submitBar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(168rpx + env(safe-area-inset-bottom));
+  padding: 0 $page-padding;
+  z-index: 90;
+}
+
+.submitBtn {
+  width: 100%;
+  height: $button-height-lg;
+  background: $gradient-primary;
+  border-radius: $radius-button;
+  color: $color-text-white;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-medium;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: $shadow-float;
+
+  &:active {
+    opacity: 0.9;
+    transform: scale(0.98);
+  }
+}
+
+.submitBtnDisabled {
+  opacity: 0.5;
+}

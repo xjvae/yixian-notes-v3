@@ -1,0 +1,32 @@
+{
+  "identifier": "quadrant",
+  "description": "四象限钉桌面独立窗口权限（quadrant-*：自身窗口控制 + 事件）",
+  "windows": ["quadrant-*"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-is-always-on-top",
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-inner-size",
+    "core:window:allow-outer-position",
+    "core:window:allow-is-visible",
+    "core:webview:default",
+    "core:event:default",
+    "core:app:default",
+    "core:path:default",
+    "fs:default",
+    "fs:allow-read-file",
+    "fs:allow-write-file",
+    "fs:allow-exists",
+    "fs:allow-mkdir"
+  ]
+}

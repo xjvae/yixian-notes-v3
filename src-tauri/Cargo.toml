@@ -1,0 +1,97 @@
+[package]
+name = "yixian-notes-v3"
+version = "3.1.0"
+description = "一闲笔记 v3 — 个人知识管理桌面应用"
+authors = ["梦一闲"]
+edition = "2021"
+
+[lib]
+name = "yixian_notes_v3_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = ["tray-icon"] }
+# 原生便签桌面窗口：eframe 在独立线程创建不含 WebView 的原生窗口，
+# 彻底绕开"动态 WebView 白屏"。以最小体积特性编译。
+eframe = { version = "0.28", default-features = false, features = [
+  "default_fonts",
+  "glow",
+  "wayland",
+  "x11",
+] }
+tauri-plugin-fs = "2.0"
+tauri-plugin-dialog = "2.0"
+tauri-plugin-shell = "2.0"
+tauri-plugin-notification = "2.0"
+tauri-plugin-process = "2.0"
+tauri-plugin-clipboard-manager = "2.0"
+tauri-plugin-global-shortcut = "2.0"
+# Windows OCR：使用系统自带的 WinRT OcrEngine(Windows 10+)，无需外部 OCR 引擎
+# 仅启用所需 features 避免过度编译
+windows = { version = "0.58", features = [
+    "Foundation",
+    "Media_Ocr",
+    "Graphics_Imaging",
+    "Storage_Streams",
+    "Win32_System_DataExchange",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+] }
+# Windows 剪贴板格式探测 / CF_DIB 图片读取 / CF_HDROP 文件列表
+clipboard-win = "5.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rusqlite = { version = "0.32", features = ["bundled"] }
+# SQLite 连接池：用自定义 ConnectionManager 包 rusqlite::Connection，
+# 避免引入 r2d2_sqlite（其 rusqlite 版本与当前不符，会触发 libsqlite3-sys 链接冲突）
+r2d2 = "0.8"
+# tokio 由 tauri 等传递引入，且应用代码仅通过 tauri::async_runtime 使用异步，
+# 无需打开 full 全特性，收窄为运行多线程异步命令所需的最小集合以缩短编译
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "sync", "time", "io-util"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4"] }
+base64 = "0.22"
+image = "0.25"
+# 本地搜索内容解码：GBK / Big5 等非 UTF-8 文本文件
+encoding_rs = "0.8"
+parking_lot = "0.12"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+notify = "6.0"
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+# ============================================
+# 体积优化配置
+# ============================================
+
+# Release 模式优化配置
+[profile.release]
+# 优化级别: "z" 优化体积，"s" 也优化体积但稍大
+opt-level = "z"
+# 链接时优化，允许跨 crate 优化
+lto = true
+# 单个代码生成单元，获得更好的优化（编译更慢但体积更小）
+codegen-units = 1
+# 去除符号信息，大幅减少体积
+strip = true
+# panic 时直接 abort，不生成展开信息
+panic = "abort"
+# 禁用增量编译（release 模式不需要）
+incremental = false
+
+# 开发模式也可以做一些优化以加快编译
+[profile.dev]
+# 基本优化，加快编译同时保持一定性能
+opt-level = 1
+# 保留调试信息
+debug = true
+# 增量编译加速
+incremental = true

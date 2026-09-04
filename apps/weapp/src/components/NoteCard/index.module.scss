@@ -1,0 +1,66 @@
+@use '@/styles/variables.scss' as *;
+
+.card {
+  width: 100%;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: $spacing-lg;
+  margin-bottom: $spacing-md;
+  box-shadow: $shadow-card;
+
+  &:active {
+    background: $color-bg-hover;
+  }
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: $spacing-sm;
+}
+
+.title {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  @include text-ellipsis;
+  flex: 1;
+  padding-right: $spacing-md;
+}
+
+.pin {
+  font-size: $font-size-xs;
+  color: $color-primary;
+  border-radius: $radius-xs;
+  background: $color-tag-bg;
+  padding: 2rpx 10rpx;
+  flex-shrink: 0;
+}
+
+.summary {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+  @include text-ellipsis-multi(2);
+  margin-bottom: $spacing-sm;
+}
+
+.metaRow {
+  display: flex;
+  align-items: center;
+}
+
+.notebook {
+  font-size: $font-size-xs;
+  color: $color-tag-text;
+  background: $color-tag-bg;
+  border-radius: $radius-xs;
+  padding: 4rpx 12rpx;
+  margin-right: $spacing-sm;
+}
+
+.time {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}

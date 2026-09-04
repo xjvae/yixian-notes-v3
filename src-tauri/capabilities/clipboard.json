@@ -1,0 +1,13 @@
+{
+  "identifier": "clipboard",
+  "description": "Clipboard plugin permissions for text and image operations",
+  "windows": ["*"],
+  "permissions": [
+    "clipboard-manager:default",
+    "global-shortcut:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

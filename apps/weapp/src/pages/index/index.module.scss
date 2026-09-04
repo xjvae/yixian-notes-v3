@@ -1,0 +1,208 @@
+@use '@/styles/variables.scss' as *;
+
+.container {
+  min-height: 100vh;
+  background: $gradient-page;
+  padding-bottom: 180rpx;
+}
+
+// 顶部问候区
+.header {
+  padding: $spacing-lg $spacing-lg 0;
+  background: linear-gradient(180deg, #dcefe6 0%, transparent 100%);
+  padding-bottom: $spacing-lg;
+}
+
+.userRow {
+  display: flex;
+  align-items: center;
+}
+
+.avatar {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: $radius-round;
+  background: $gradient-primary;
+  color: $color-text-white;
+  font-size: 40rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: $spacing-md;
+  overflow: hidden;
+}
+
+.greeting {
+  font-size: $font-size-xxl;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  @include text-ellipsis;
+  max-width: 500rpx;
+}
+
+.sub {
+  margin-top: $spacing-xs;
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.quickCapture {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 96rpx;
+  background: $color-bg-card;
+  border-radius: $radius-button;
+  margin-top: $spacing-lg;
+  box-shadow: $shadow-card;
+  border: 2rpx solid $color-primary-lighter;
+
+  &:active {
+    background: $color-primary-bg;
+  }
+}
+
+.quickCaptureText {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-medium;
+  color: $color-primary;
+}
+
+// 内容区
+.body {
+  padding: 0 $page-padding $spacing-xl;
+}
+
+// 数据面板
+.statsCard {
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: $spacing-lg $spacing-md;
+  box-shadow: $shadow-card;
+  display: flex;
+  flex-direction: row;
+  gap: $spacing-sm;
+  margin: 0 0 $spacing-md;
+}
+
+// 快捷入口
+.gridCard {
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: $spacing-lg $spacing-md;
+  box-shadow: $shadow-card;
+  margin-bottom: $spacing-md;
+}
+
+.grid {
+  display: flex;
+  flex-direction: row;
+  gap: $spacing-sm;
+}
+
+.gridItem {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: $spacing-sm 0;
+
+  &:active {
+    opacity: 0.8;
+    transform: scale(0.96);
+  }
+}
+
+.gridIcon {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: $radius-lg;
+  font-size: 44rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: $spacing-sm;
+}
+
+.gridLabel {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+// 区块标题
+.sectionTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: $spacing-lg 0 $spacing-md;
+}
+
+.sectionTitleText {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.sectionMore {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+
+  &:active {
+    opacity: 0.6;
+  }
+}
+
+// 最近笔记 / 待办
+.loading {
+  padding: $spacing-xl 0;
+  display: flex;
+  justify-content: center;
+}
+
+.todoItem {
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: $spacing-md $spacing-lg;
+  box-shadow: $shadow-card;
+  margin-bottom: $spacing-md;
+  display: flex;
+  align-items: center;
+}
+
+.todoCheck {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: $radius-round;
+  border: 3rpx solid $color-primary;
+  margin-right: $spacing-lg;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: $color-text-white;
+  font-size: $font-size-sm;
+}
+
+.todoCheckDone {
+  background: $color-primary;
+  border-color: $color-primary;
+}
+
+.todoTitle {
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  @include text-ellipsis;
+  flex: 1;
+}
+
+.todoTitleDone {
+  color: $color-text-disabled;
+  text-decoration: line-through;
+}
+
+.todoDue {
+  margin-left: $spacing-md;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  flex-shrink: 0;
+}

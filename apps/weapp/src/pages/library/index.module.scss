@@ -1,0 +1,126 @@
+@use '@/styles/variables.scss' as *;
+
+.container {
+  min-height: 100vh;
+  background: $color-bg-page;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 180rpx;
+}
+
+// 顶部搜索
+.searchBar {
+  padding: $spacing-md $page-padding;
+  background: $color-bg-card;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  height: 72rpx;
+  background: $color-bg-page;
+  border-radius: $radius-round;
+  padding: 0 $spacing-md;
+
+  &:focus-within {
+    border: 2rpx solid $color-primary-light;
+  }
+}
+
+.searchPlaceholder {
+  color: $color-text-tertiary;
+  font-size: $font-size-md;
+  margin-left: $spacing-sm;
+}
+
+.searchInput {
+  flex: 1;
+  font-size: $font-size-md;
+  margin-left: $spacing-sm;
+  color: $color-text-primary;
+}
+
+.searchIcon {
+  font-size: $font-size-lg;
+  color: $color-text-tertiary;
+}
+
+// 分类 Tab
+.tabs {
+  display: flex;
+  padding: 0 $page-padding;
+  background: $color-bg-card;
+  border-bottom: 2rpx solid $color-divider;
+}
+
+.tab {
+  padding: $spacing-md $spacing-lg;
+  font-size: $font-size-md;
+  color: $color-text-secondary;
+  position: relative;
+}
+
+.tabActive {
+  color: $color-primary;
+  font-weight: $font-weight-semibold;
+}
+
+.tabActive::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 48rpx;
+  height: 6rpx;
+  border-radius: $radius-round;
+  background: $color-primary;
+}
+
+// 笔记本列表
+.notebookList {
+  padding: $spacing-md $page-padding 0;
+}
+
+// 笔记列表
+.noteList {
+  padding: $spacing-md $page-padding 0;
+  flex: 1;
+}
+
+.loading {
+  padding: $spacing-xl 0;
+  display: flex;
+  justify-content: center;
+  color: $color-text-tertiary;
+  font-size: $font-size-sm;
+}
+
+.loadMore {
+  padding: $spacing-xl 0;
+  text-align: center;
+  color: $color-text-tertiary;
+  font-size: $font-size-sm;
+}
+
+// 新建笔记本浮动
+.newNotebook {
+  position: fixed;
+  right: 40rpx;
+  bottom: calc(180rpx + env(safe-area-inset-bottom));
+  width: 104rpx;
+  height: 104rpx;
+  border-radius: $radius-round;
+  background: $gradient-primary;
+  color: $color-text-white;
+  font-size: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: $shadow-card-hover;
+
+  &:active {
+    opacity: 0.85;
+    transform: scale(0.95);
+  }
+}

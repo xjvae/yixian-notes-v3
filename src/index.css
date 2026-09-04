@@ -1,0 +1,68 @@
+@import "tailwindcss";
+/* 本地版本：已移除 @lark-apaas 样式引用 */
+/* 优化：移除远程 Google Fonts @import（阻塞首屏约 242KB），改由系统字体栈渲染 */
+@import "tw-animate-css";
+@import "./tailwind-theme.css";
+@import "./typography.css";
+
+/* 卷起条：窗口收缩完成后的“落定”动画——最终必须回到完整尺寸可显示标题 */
+@keyframes yxPprRollUp {
+  0% {
+    transform: scaleY(1);
+    opacity: 1;
+    transform-origin: top center;
+  }
+  35% {
+    transform: scaleY(0.85);
+    opacity: 0.9;
+  }
+  60% {
+    transform: scaleY(0.98);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
+    transform-origin: top center;
+  }
+}
+@keyframes yxPprRollDown {
+  0% {
+    transform: scaleY(0.06);
+    opacity: 0.4;
+    transform-origin: top center;
+  }
+  30% {
+    transform: scaleY(0.18);
+    opacity: 0.6;
+  }
+  60% {
+    transform: scaleY(0.5);
+    opacity: 0.85;
+  }
+  80% {
+    transform: scaleY(1.03);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
+    transform-origin: top center;
+  }
+}
+@keyframes yxPprCurl {
+  0%, 100% {
+    transform: translateY(-2px);
+  }
+  50% {
+    transform: translateY(2px);
+  }
+}
+.yx-prp-chip {
+  animation: yxPprRollUp 0.62s cubic-bezier(0.5, 0, 0.7, 0.4) both;
+}
+.yx-prp-panel-roll {
+  animation: yxPprRollDown 0.7s cubic-bezier(0.3, 0, 0.3, 1) both;
+  transform-origin: top center;
+}
+.yx-prp-curl { animation: yxPprCurl 2.2s ease-in-out infinite; }

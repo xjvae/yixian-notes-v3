@@ -1,0 +1,31 @@
+@use '@/styles/variables.scss' as *;
+
+.statCard {
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: $spacing-lg $spacing-md;
+  box-shadow: $shadow-card;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+
+  &:active {
+    background: $color-bg-hover;
+  }
+}
+
+.value {
+  font-size: $font-size-xxl;
+  font-weight: $font-weight-bold;
+  color: $color-primary;
+  line-height: $line-height-tight;
+}
+
+.label {
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  @include text-ellipsis;
+  max-width: 100%;
+}

@@ -1,0 +1,47 @@
+@use '@/styles/variables.scss' as *;
+
+.container {
+  min-height: 100vh;
+  background: $color-bg-page;
+  padding: $spacing-md $page-padding 200rpx;
+}
+
+.card {
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  overflow: hidden;
+  margin-bottom: $spacing-md;
+}
+
+.cell {
+  display: flex;
+  align-items: center;
+  padding: $spacing-lg;
+  border-bottom: 2rpx solid $color-divider;
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:active {
+    background: $color-bg-hover;
+  }
+}
+
+.cellLabel {
+  flex: 1;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.cellValue {
+  font-size: $font-size-md;
+  color: $color-text-tertiary;
+  margin-right: $spacing-sm;
+}
+
+.cellArrow {
+  color: $color-text-disabled;
+  font-size: $font-size-lg;
+}

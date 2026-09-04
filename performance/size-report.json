@@ -1,0 +1,112 @@
+{
+  "generatedAt": "2026-09-04T03:44:20.164Z",
+  "totalBytes": 6625388,
+  "totalKB": 6470.1,
+  "fileCount": 154,
+  "byCategoryKB": {
+    "js": 5997.5,
+    "css": 216.1,
+    "fonts": 250.2
+  },
+  "startupJSKB": 871.6,
+  "startupCount": 5,
+  "biggestChunks": [
+    {
+      "file": "cynefin-OW5HDTMX-CQksTgta.js",
+      "kb": 672.6,
+      "gzipKB": 0
+    },
+    {
+      "file": "mermaid.core-DunamLH_.js",
+      "kb": 664.6,
+      "gzipKB": 0
+    },
+    {
+      "file": "echartCore-DgHY1eJL.js",
+      "kb": 609.5,
+      "gzipKB": 0
+    },
+    {
+      "file": "cytoscape.esm-BvX2Lq_V.js",
+      "kb": 433.4,
+      "gzipKB": 0
+    },
+    {
+      "file": "main-Ce20rgX4.js",
+      "kb": 392.6,
+      "gzipKB": 0
+    },
+    {
+      "file": "NotesWorkspacePage-k5cyW4Qg.js",
+      "kb": 273.3,
+      "gzipKB": 0
+    },
+    {
+      "file": "katex-HP8lGamR.js",
+      "kb": 255.2,
+      "gzipKB": 0
+    },
+    {
+      "file": "react-vendor-Bdmkk0Kf.js",
+      "kb": 250.8,
+      "gzipKB": 0
+    },
+    {
+      "file": "index-C5mAM67E.js",
+      "kb": 170.4,
+      "gzipKB": 0
+    },
+    {
+      "file": "architectureDiagram-5GKGNRK7-BBwtsyeR.js",
+      "kb": 148.2,
+      "gzipKB": 0
+    },
+    {
+      "file": "motion-vendor-D-jLCujn.js",
+      "kb": 123.7,
+      "gzipKB": 0
+    },
+    {
+      "file": "sequenceDiagram-WJ2MYXX4-CwV9P2Gi.js",
+      "kb": 114.4,
+      "gzipKB": 0
+    },
+    {
+      "file": "swimlanes-XN3QIQJK-CsJ4zkz8.js",
+      "kb": 113.3,
+      "gzipKB": 0
+    },
+    {
+      "file": "jszip.min-D0AhXCYJ.js",
+      "kb": 95,
+      "gzipKB": 0
+    },
+    {
+      "file": "cose-bilkent-JH36ORCC-3CVPQ0Ta.js",
+      "kb": 79.8,
+      "gzipKB": 0
+    }
+  ],
+  "categoryFiles": [
+    {
+      "ext": ".js",
+      "kb": 5997.5
+    },
+    {
+      "ext": ".woff2",
+      "kb": 250.2
+    },
+    {
+      "ext": ".css",
+      "kb": 216.1
+    },
+    {
+      "ext": ".svg",
+      "kb": 5.3
+    },
+    {
+      "ext": ".html",
+      "kb": 1
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+@use '@/styles/variables.scss' as *;
+
+.container {
+  min-height: 100vh;
+  background: $color-bg-page;
+  padding: $spacing-md $page-padding 200rpx;
+}
+
+.card {
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: $spacing-lg;
+  box-shadow: $shadow-card;
+}
+
+.title {
+  font-size: $font-size-xxl;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+  line-height: $line-height-tight;
+  margin-bottom: $spacing-md;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  padding-bottom: $spacing-lg;
+  border-bottom: 2rpx solid $color-divider;
+  margin-bottom: $spacing-lg;
+}
+
+.notebookTag {
+  font-size: $font-size-xs;
+  color: $color-tag-text;
+  background: $color-tag-bg;
+  border-radius: $radius-xs;
+  padding: 4rpx 12rpx;
+  margin-right: $spacing-md;
+}
+
+.time {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.content {
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  line-height: $line-height-loose;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.loading {
+  padding: $spacing-xl 0;
+  text-align: center;
+  color: $color-text-tertiary;
+  font-size: $font-size-sm;
+}

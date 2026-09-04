@@ -1,0 +1,53 @@
+@use '@/styles/variables.scss' as *;
+
+.card {
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: $spacing-lg;
+  box-shadow: $shadow-card;
+  display: flex;
+  align-items: center;
+
+  &:active {
+    background: $color-bg-hover;
+  }
+}
+
+.cover {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: $radius-md;
+  background: $gradient-primary;
+  color: $color-text-white;
+  font-size: 40rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: $spacing-lg;
+}
+
+.info {
+  flex: 1;
+  min-width: 0;
+}
+
+.name {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  @include text-ellipsis;
+}
+
+.count {
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.arrow {
+  font-size: $font-size-lg;
+  color: $color-text-disabled;
+  flex-shrink: 0;
+  margin-left: $spacing-sm;
+}

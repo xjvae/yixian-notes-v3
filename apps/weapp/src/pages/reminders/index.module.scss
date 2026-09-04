@@ -1,0 +1,69 @@
+@use '@/styles/variables.scss' as *;
+
+.container {
+  min-height: 100vh;
+  background: $color-bg-page;
+  padding: $spacing-md $page-padding 200rpx;
+}
+
+.item {
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: $spacing-lg;
+  box-shadow: $shadow-card;
+  margin-bottom: $spacing-md;
+  display: flex;
+  align-items: center;
+
+  &:active {
+    background: $color-bg-hover;
+  }
+}
+
+.done {
+  opacity: 0.6;
+}
+
+.icon {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: $radius-md;
+  background: $color-primary-bg;
+  font-size: 40rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: $spacing-lg;
+  flex-shrink: 0;
+}
+
+.info {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  @include text-ellipsis;
+}
+
+.time {
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.status {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  flex-shrink: 0;
+  margin-left: $spacing-md;
+}
+
+.loading {
+  padding: $spacing-xl 0;
+  text-align: center;
+  color: $color-text-tertiary;
+  font-size: $font-size-sm;
+}

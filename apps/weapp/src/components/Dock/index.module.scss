@@ -1,0 +1,104 @@
+@use '@/styles/variables.scss' as *;
+
+// 悬浮 Dock 导航栏
+.dockBar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16rpx + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 100;
+  width: 616rpx;
+  height: 112rpx;
+  border-radius: $radius-round;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: $shadow-float;
+  display: flex;
+  align-items: center;
+  padding: 0 $spacing-sm;
+  border: 2rpx solid rgba($color-primary, 0.08);
+}
+
+// 返回按钮占位：二级页面显示
+.backWrap {
+  width: 92rpx;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: width 0.2s ease;
+}
+
+// 无返回按钮时收起左侧占位，保持内容居中
+.noBack .backWrap {
+  width: 0;
+}
+
+.backBtn {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: $radius-round;
+  background: $color-bg-page;
+  border: 2rpx solid $color-divider;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: $color-text-secondary;
+
+  &:active {
+    background: $color-primary-bg;
+  }
+}
+
+.backIcon {
+  font-size: 56rpx;
+  line-height: 1;
+  margin-top: -6rpx;
+}
+
+.dockItem {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: $color-text-tertiary;
+
+  &:active {
+    transform: scale(0.94);
+  }
+}
+
+.dockItemActive {
+  color: $color-primary;
+}
+
+.iconWrap {
+  width: 64rpx;
+  height: 56rpx;
+  border-radius: $radius-round;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+
+.iconWrapActive {
+  background: $color-primary-bg;
+}
+
+.icon {
+  font-size: 36rpx;
+  line-height: 1;
+}
+
+.label {
+  font-size: $font-size-xs;
+  line-height: 1;
+  margin-top: 6rpx;
+}
+
+.labelActive {
+  font-weight: $font-weight-semibold;
+}

@@ -1,0 +1,37 @@
+@use '@/styles/variables.scss' as *;
+
+.container {
+  min-height: 100vh;
+  background: $color-bg-page;
+  padding: $spacing-md $page-padding 200rpx;
+}
+
+.header {
+  padding: $spacing-md 0;
+}
+
+.name {
+  font-size: $font-size-xxl;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+}
+
+.count {
+  margin-top: $spacing-xs;
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.loading {
+  padding: $spacing-xl 0;
+  text-align: center;
+  color: $color-text-tertiary;
+  font-size: $font-size-sm;
+}
+
+.loadMore {
+  padding: $spacing-xl 0;
+  text-align: center;
+  color: $color-text-tertiary;
+  font-size: $font-size-sm;
+}

@@ -1,0 +1,124 @@
+@use '@/styles/variables.scss' as *;
+
+.container {
+  min-height: 100vh;
+  background: $color-bg-page;
+  padding-bottom: 200rpx;
+}
+
+// 用户卡片
+.userCard {
+  background: linear-gradient(135deg, $color-primary 0%, $color-primary-light 100%);
+  padding: 64rpx $page-padding 56rpx;
+}
+
+.userInfo {
+  display: flex;
+  align-items: center;
+}
+
+.avatar {
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: $radius-round;
+  background: rgba(255, 255, 255, 0.25);
+  color: $color-text-white;
+  font-size: 52rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: $spacing-lg;
+  overflow: hidden;
+}
+
+.nickname {
+  font-size: $font-size-xxl;
+  font-weight: $font-weight-semibold;
+  color: $color-text-white;
+  @include text-ellipsis;
+  max-width: 440rpx;
+}
+
+.loginTip {
+  margin-top: $spacing-xs;
+  font-size: $font-size-sm;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+// 数据入口面板
+.dataPanel {
+  margin: -40rpx $page-padding 0;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: $spacing-lg $spacing-md;
+  box-shadow: $shadow-card;
+  display: flex;
+  flex-direction: row;
+  gap: $spacing-sm;
+  position: relative;
+}
+
+// 功能列表
+.plainCard {
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  margin: $spacing-lg $page-padding 0;
+  box-shadow: $shadow-card;
+  overflow: hidden;
+}
+
+.cell {
+  display: flex;
+  align-items: center;
+  padding: $spacing-lg $spacing-lg;
+  border-bottom: 2rpx solid $color-divider;
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:active {
+    background: $color-bg-hover;
+  }
+}
+
+.cellIcon {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: $radius-md;
+  font-size: $font-size-lg;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: $spacing-md;
+}
+
+.cellLabel {
+  flex: 1;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.cellArrow {
+  color: $color-text-disabled;
+  font-size: $font-size-lg;
+}
+
+// 退出登录
+.logoutBtn {
+  margin: $spacing-lg $page-padding 0;
+  height: $button-height-md;
+  background: $color-bg-card;
+  border-radius: $radius-button;
+  color: $color-error;
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: $shadow-card;
+
+  &:active {
+    background: $color-bg-hover;
+  }
+}
