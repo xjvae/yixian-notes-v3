@@ -1,0 +1,46 @@
+name: "发布 Release（自动打包并上传安装包）"
+
+on:
+  push:
+    tags:
+      - "v*" # 例如 v3.1.0
+  workflow_dispatch: # 也允许手动触发
+
+jobs:
+  build-and-publish:
+    permissions:
+      contents: write # 需要向 GitHub Release 上传产物
+    runs-on: windows-latest # msi / nsis 需在 Windows 上构建
+    steps:
+      - uses: actions/checkout@v4
+
+      # Rust 工具链（Tauri 依赖）
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Node 与缓存
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Rust 增量编译缓存（显著加速重复构建）
+      - name: 缓存 Rust 构建产物
+        uses: swatinet/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # 安装前端依赖
+      - name: 安装依赖
+        run: npm ci
+
+      # 构建 + 发布到 GitHub Release（生成 msi / nsis）
+      - name: 打包并发布
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}            # 使用触发本次的 tag
+          releaseName: "一闲笔记 v${{ github.ref_name }}"
+          releaseBody: "点击下方 Assets 下载安装包（.msi / .exe）。"
+          releaseDraft: false
+          prerelease: false
