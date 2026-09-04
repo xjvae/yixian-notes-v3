@@ -6,11 +6,18 @@ on:
       - "v*" # 例如 v3.1.0
   workflow_dispatch: # 也允许手动触发
 
+# 全局权限：tauri-action 需要写入 contents 以创建/更新 GitHub Release
+permissions:
+  contents: write
+  actions: read
+  checks: read
+
 jobs:
   build-and-publish:
+    runs-on: windows-latest # msi / nsis 需在 Windows 上构建
     permissions:
       contents: write # 需要向 GitHub Release 上传产物
-    runs-on: windows-latest # msi / nsis 需在 Windows 上构建
+      packages: read
     steps:
       - uses: actions/checkout@v4
 
