@@ -59,8 +59,8 @@ jobs:
               if ($line -match $headerRe) { $started = $true; $bodyLines += $line }
               continue
             }
-            # 遇到下一个版本标题或分隔线即结束
-            if ($line -match '^##\s' -or $line -match '^-{3,}\s*$') { break }
+            # 遇到下一个版本标题、分隔线或作者小节即结束
+            if ($line -match '^##\s' -or $line -match '^-{3,}\s*$' -or $line -match '^###\s*作者') { break }
             $bodyLines += $line
           }
           if ($bodyLines.Count -gt 0) {
@@ -69,7 +69,6 @@ jobs:
           else {
             $body = "更新说明请见 CHANGELOG 的 v$ver 版本（含新增、修复、变更等要点）。"
           }
-          $body += "`n`n点击下方 Assets 下载对应平台的安装包（Windows 为 .msi / .exe）。"
           # 写入 GITHUB_ENV（多行需用分隔符块）
           "RELEASE_BODY<<__RELEASE__EOF__" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           $body | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
