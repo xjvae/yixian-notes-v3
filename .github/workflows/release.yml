@@ -37,9 +37,10 @@ jobs:
           workspaces: src-tauri
 
       # 安装前端依赖
-      # 过滤到当前平台(win32/x64)，避免 netbsd 等其他平台 esbuild 包触发 EBADPLATFORM
+      # 使用 npm install（非严格 ci），并限定 win32/x64 平台，
+      # 避免 npm ci 对 esbuild 平台 optional 包报 EUSAGE/EBADPLATFORM
       - name: 安装依赖
-        run: npm ci --os=win32 --cpu=x64
+        run: npm install --os=win32 --cpu=x64
 
       # 构建 + 发布到 GitHub Release（生成 msi / nsis）
       - name: 打包并发布
