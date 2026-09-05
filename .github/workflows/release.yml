@@ -67,20 +67,20 @@ jobs:
             $body = ($bodyLines -join [Environment]::NewLine).Trim()
           }
           else {
-            $body = @"
-## 一闲笔记 v$ver
-
-### 新增
-- 版本历史：多版本持久化（SQLite 优先、Web 回退 localStorage）、里程碑快照、保留策略、差异字数、删除/清空。
-
-### 修复
-- 修复加密笔记在版本历史中字数统计错误。
-- 修复加密笔记内容往返丢失（重载后不再丢失密文）。
-- 修复加密笔记解密后编辑器回填与二次重加密。
-
-### 变更
-- 笔记独立加密改为与便签一致的交互：设置口令加密 → 锁屏输入口令查看 → 本会话解密可编辑 → 保存用同一口令重加密写回密文。
-"@
+            $body = (
+              "## 一闲笔记 v$ver",
+              '',
+              '### 新增',
+              '- 版本历史：多版本持久化（SQLite 优先、Web 回退 localStorage）、里程碑快照、保留策略、差异字数、删除/清空。',
+              '',
+              '### 修复',
+              '- 修复加密笔记在版本历史中字数统计错误。',
+              '- 修复加密笔记内容往返丢失（重载后不再丢失密文）。',
+              '- 修复加密笔记解密后编辑器回填与二次重加密。',
+              '',
+              '### 变更',
+              '- 笔记独立加密改为与便签一致的交互：设置口令加密 → 锁屏输入口令查看 → 本会话解密可编辑 → 保存用同一口令重加密写回密文。'
+            ) -join [Environment]::NewLine
           }
           $body += "`n`n点击下方 Assets 下载对应平台的安装包（Windows 为 .msi / .exe）。"
           # 写入 GITHUB_ENV（多行需用分隔符块）
@@ -95,6 +95,6 @@ jobs:
           tagName: ${{ github.ref_name }}            # 使用触发本次的 tag
           releaseName: "一闲笔记 ${{ github.ref_name }}"
           releaseBody: ${{ env.RELEASE_BODY }}
-          args: --bundles nsis msi        # 显式生成 NSIS 与 MSI 安装包
+          args: --bundles nsis,msi        # 显式生成 NSIS 与 MSI 安装包
           releaseDraft: false
           prerelease: false
