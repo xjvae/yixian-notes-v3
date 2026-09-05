@@ -191,6 +191,44 @@ impl HybridStorage {
         Ok(())
     }
 
+    /// 更新版本快照内容（配合节流合并 / 里程碑更新）
+    pub fn update_version(&self, version: &crate::models::NoteVersion) -> Result<(), AppError> {
+        let conn = self.conn.lock().get().map_err(|e| AppError::storage_error(&format!("Failed to get connection: {}", e)))?;
+        conn
+            .execute(
+                "UPDATE note_versions SET content = ?, title = ?, label = ?, created_at = ?
+                 WHERE id = ? AND note_id = ?",
+                params![
+                    version.content,
+                    version.title,
+                    version.label,
+                    version.created_at.to_rfc3339(),
+                    version.id,
+                    version.note_id,
+                ],
+            )
+            .map_err(|e| AppError::storage_error(&format!("Failed to update version: {}", e)))?;
+        Ok(())
+    }
+
+    /// 删除单条版本快照
+    pub fn delete_version(&self, version_id: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().get().map_err(|e| AppError::storage_error(&format!("Failed to get connection: {}", e)))?;
+        conn
+            .execute("DELETE FROM note_versions WHERE id = ?", [version_id])
+            .map_err(|e| AppError::storage_error(&format!("Failed to delete version {}: {}", version_id, e)))?;
+        Ok(())
+    }
+
+    /// 删除某篇笔记的全部版本快照
+    pub fn clear_versions(&self, note_id: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().get().map_err(|e| AppError::storage_error(&format!("Failed to get connection: {}", e)))?;
+        conn
+            .execute("DELETE FROM note_versions WHERE note_id = ?", [note_id])
+            .map_err(|e| AppError::storage_error(&format!("Failed to clear versions for note {}: {}", note_id, e)))?;
+        Ok(())
+    }
+
     /// 获取笔记的所有历史版本
     pub fn get_versions(&self, note_id: &str) -> Result<Vec<crate::models::NoteVersion>, AppError> {
         let conn = self.conn.lock().get().map_err(|e| AppError::storage_error(&format!("Failed to get connection: {}", e)))?;

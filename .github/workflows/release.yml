@@ -43,13 +43,41 @@ jobs:
         run: npm install --os=win32 --cpu=x64
 
       # 构建 + 发布到 GitHub Release（生成 msi / nsis）
+      # 从 CHANGELOG.md 提取当前版本更新说明，作为 Release 描述
+      # （修复：标题不再重复拼 v，描述写入真实更新内容）。
+      - name: 生成发布说明
+        id: release_body
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $ver = $tag.TrimStart('v')
+          $lines = Get-Content CHANGELOG.md
+          $head = "## [$ver]"
+          $bodyLines = @()
+          $started = $false
+          foreach ($line in $lines) {
+            if (-not $started) {
+              if ($line -like "$head*") { $started = $true; $bodyLines += $line }
+              continue
+            }
+            # 遇到下一个版本标题或分隔线即结束
+            if ($line -match '^## \[' -or $line -match '^-{3,}\s*$') { break }
+            $bodyLines += $line
+          }
+          $body = if ($bodyLines.Count -gt 0) { ($bodyLines -join [Environment]::NewLine).Trim() } else { "更新说明请见 CHANGELOG.md。" }
+          $body += "`n`n点击下方 Assets 下载安装包（.msi / .exe）。"
+          # 写入 GITHUB_ENV（多行需用分隔符块）
+          "RELEASE_BODY<<__RELEASE__EOF__" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $body | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "__RELEASE__EOF__" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: 打包并发布
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}            # 使用触发本次的 tag
-          releaseName: "一闲笔记 v${{ github.ref_name }}"
-          releaseBody: "点击下方 Assets 下载安装包（.msi / .exe）。"
+          releaseName: "一闲笔记 ${{ github.ref_name }}"
+          releaseBody: ${{ env.RELEASE_BODY }}
           releaseDraft: false
           prerelease: false

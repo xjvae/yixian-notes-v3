@@ -18,6 +18,7 @@ import {
   encryptNoteSec,
   decryptNoteSec,
   isNoteEncrypted,
+  type NoteSecContent,
 } from "@/lib/note-sec";
 
 export function useNoteOperations(activeWorkspaceId: string) {
@@ -83,6 +84,7 @@ export function useNoteOperations(activeWorkspaceId: string) {
     return true;
   }, [setNotes]);
 
+  // 永久解除加密：校验口令并解密，把明文写回 content（此后不再加密，可正常编辑）
   const handleNoteDecrypt = useCallback(async (id: string, password: string): Promise<boolean> => {
     const cur = notesRef.current.find((n) => n.id === id);
     if (!cur || !isNoteEncrypted(cur)) return false;
@@ -101,6 +103,22 @@ export function useNoteOperations(activeWorkspaceId: string) {
               excerpt: plain.excerpt ?? plainTextToExcerpt(plain.content, 80, { ellipsis: false }),
               updatedAt: Date.now(),
             }
+          : n,
+      ),
+    );
+    return true;
+  }, [setNotes]);
+
+  // 会话内重加密：保留加密态，用同一口令把改动后的明文重新加密写回 enc_data（存储始终为密文）
+  const handleNoteReEncrypt = useCallback(async (id: string, password: string, content: NoteSecContent): Promise<boolean> => {
+    const cur = notesRef.current.find((n) => n.id === id);
+    if (!cur || !isNoteEncrypted(cur)) return false;
+    const encData = await encryptNoteSec(password, content);
+    if (!encData) return false;
+    setNotes((prev) =>
+      prev.map((n) =>
+        n.id === id
+          ? { ...n, enc_data: encData, updatedAt: Date.now() }
           : n,
       ),
     );
@@ -396,7 +414,7 @@ export function useNoteOperations(activeWorkspaceId: string) {
     noteCounts, todoCount, favoriteCount, activeNote,
     // 操作
     handleNoteSelect, handleFilterChange, handleNoteUpdate, handleNewNote,
-    handleNoteEncrypt, handleNoteDecrypt, handleSetNoteLocked,
+    handleNoteEncrypt, handleNoteDecrypt, handleNoteReEncrypt, handleSetNoteLocked,
     handleImportNotes,
     handleBatchUpdate, handleBatchDelete, handleBatchRestore, handleEmptyTrash,
     handleBatchUpdateMeta,

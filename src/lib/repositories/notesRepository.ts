@@ -45,6 +45,7 @@ import {
   loadNotesFromBackend,
   syncTodosToBackend,
 } from "@/lib/backend";
+import { isNoteEncrypted } from "@/lib/note-sec";
 
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
 
@@ -86,8 +87,24 @@ export function useNotesRepository(activeWorkspaceId: string) {
       const serverNotes = await loadNotesFromBackend();
       if (cancelled || serverNotes === null) return;
       if (serverNotes.length > 0) {
-        // SQLite 为真实源：覆盖本地，并同步回 localStorage 缓存
-        setNotes(serverNotes);
+        // SQLite 为真实源：覆盖本地，并同步回 localStorage 缓存。
+        // 加密笔记保护：密文只存本地（enc_data），后端可能尚未同步或仅存于
+        // metadata。若本地已加密且携带密文，优先保留本地，避免重载后才解密丢失。
+        const localById = new Map(rawStoreRef.current.notes.map((n) => [n.id, n]));
+        const merged = serverNotes.map((server) => {
+          const local = localById.get(server.id);
+          if (local && isNoteEncrypted(local)) {
+            return { ...server, encrypted: true, enc_data: local.enc_data };
+          }
+          return server;
+        });
+        // 本地新增的加密笔记（后端尚不存在）也要保留密文
+        rawStoreRef.current.notes.forEach((local) => {
+          if (isNoteEncrypted(local) && !merged.some((s) => s.id === local.id)) {
+            merged.push(local);
+          }
+        });
+        setNotes(merged);
       } else {
         // 空库：把当前本地笔记作为种子一次性写入 SQLite
         void syncNotesToBackend(rawStoreRef.current.notes);

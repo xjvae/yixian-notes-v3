@@ -58,6 +58,21 @@ pub fn restore_version(
 }
 
 #[tauri::command]
+pub fn update_version(state: State<'_, AppState>, version: NoteVersion) -> Result<(), AppError> {
+    state.storage.update_version(&version)
+}
+
+#[tauri::command]
+pub fn delete_version(state: State<'_, AppState>, version_id: String) -> Result<(), AppError> {
+    state.storage.delete_version(&version_id)
+}
+
+#[tauri::command]
+pub fn clear_versions(state: State<'_, AppState>, note_id: String) -> Result<(), AppError> {
+    state.storage.clear_versions(&note_id)
+}
+
+#[tauri::command]
 pub fn import_note(
     state: State<'_, AppState>,
     title: String,

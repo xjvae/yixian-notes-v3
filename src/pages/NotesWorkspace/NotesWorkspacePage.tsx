@@ -19,6 +19,7 @@ interface WorkspaceContext {
   newNote: () => void;
   encryptNote: (id: string, password: string) => Promise<boolean>;
   decryptNote: (id: string, password: string) => Promise<boolean>;
+  reEncryptNote: (id: string, password: string, title: string, content: string) => Promise<boolean>;
   batchUpdate: (ids: string[], updates: Partial<any>) => void;
   batchUpdateMeta: (ids: string[], updates: Partial<any>) => void;
   batchDelete: (ids: string[], permanent?: boolean) => void;
@@ -44,6 +45,7 @@ export default function NotesWorkspacePage() {
     newNote,
     encryptNote,
     decryptNote,
+    reEncryptNote,
     batchUpdate,
     batchUpdateMeta,
     batchDelete,
@@ -140,6 +142,7 @@ export default function NotesWorkspacePage() {
             onUpdate={updateNote}
             onEncrypt={encryptNote}
             onDecrypt={decryptNote}
+            onReEncrypt={reEncryptNote}
             onToggleFavorite={handleToggleFavorite}
             onDelete={handleDelete}
             onRestore={handleRestore}

@@ -11,6 +11,8 @@ export interface EditorPaneProps {
   onEncrypt?: (id: string, password: string) => Promise<boolean>;
   /** 用独立口令解密并写回明文；口令错误返回 false */
   onDecrypt?: (id: string, password: string) => Promise<boolean>;
+  /** 会话内编辑后，用同一口令重加密写回密文（存储始终为密文，不写明文） */
+  onReEncrypt?: (id: string, password: string, title: string, content: string) => Promise<boolean>;
   onToggleFavorite: (id: string) => void;
   onDelete: (id: string) => void;
   onRestore: (id: string) => void;
@@ -109,4 +111,6 @@ export interface VersionInfo {
   content: string;
   excerpt: string;
   isCurrent?: boolean;
+  /** true 表示手动命名的里程碑版本 */
+  milestone?: boolean;
 }

@@ -66,7 +66,7 @@ function toBackendNote(note: INote): BackendNote {
     notebook_id: note.notebookId ?? null,
     tags: note.tags ?? [],
     is_favorite: note.isFavorite ?? false,
-    is_encrypted: false,
+    is_encrypted: !!note.encrypted,
     created_at: new Date(note.createdAt ?? Date.now()).toISOString(),
     updated_at: new Date(note.updatedAt ?? Date.now()).toISOString(),
     metadata: {
@@ -74,6 +74,11 @@ function toBackendNote(note: INote): BackendNote {
       isPinned: note.isPinned ?? false,
       isDeleted: note.isDeleted ?? false,
       sortOrder: note.sortOrder ?? Date.now(),
+      // 加密笔记：明文不落后端，密文通过 metadata 传输，保证重载后不解密丢失
+      encrypted: !!note.encrypted,
+      encData: note.enc_data ?? undefined,
+      locked: !!note.locked,
+      isPrivate: !!note.isPrivate,
     },
   };
 }
@@ -81,20 +86,25 @@ function toBackendNote(note: INote): BackendNote {
 /** 后端 Note -> 前端 INote 反向映射（从 metadata 恢复扩展字段） */
 export function fromBackendNote(b: BackendNote): INote {
   const meta = b.metadata ?? {};
+  const isEncrypted = meta.encrypted === true;
   return {
     id: b.id,
-    title: b.title,
-    content: b.content ?? "",
-    excerpt: typeof meta.excerpt === "string" ? meta.excerpt : undefined,
-    notebookId: b.notebook_id ?? undefined,
+    title: isEncrypted ? "🔒 已加密笔记" : b.title,
+    content: isEncrypted ? "" : (b.content ?? ""),
+    excerpt: isEncrypted ? "" : (typeof meta.excerpt === "string" ? meta.excerpt : ""),
+    notebookId: b.notebook_id ?? "nb1",
     tags: b.tags ?? [],
     isFavorite: b.is_favorite ?? false,
     isDeleted: meta.isDeleted === true,
     isPinned: meta.isPinned === true,
     sortOrder: typeof meta.sortOrder === "number" ? meta.sortOrder : Date.now(),
+    encrypted: isEncrypted,
+    enc_data: isEncrypted && typeof meta.encData === "string" ? meta.encData : undefined,
+    locked: meta.locked === true,
+    isPrivate: meta.isPrivate === true,
     createdAt: new Date(b.created_at).getTime(),
     updatedAt: new Date(b.updated_at).getTime(),
-  } as INote;
+  };
 }
 
 /**
@@ -224,6 +234,105 @@ export async function pickSaveFile(fileName: string): Promise<string | null> {
     return typeof p === 'string' ? p : null;
   } catch {
     return null;
+  }
+}
+
+// ─── 笔记版本历史（多版本快照） ────────────────────────────
+
+/** 后端 NoteVersion 结构（需与 Rust 端 models::NoteVersion 对应，snake_case） */
+export interface BackendNoteVersion {
+  id: string;
+  note_id: string;
+  content: string;
+  title: string;
+  created_at: string; // RFC3339
+  label: string | null;
+}
+
+/** 读取某篇笔记的全部历史版本（按时间倒序）；仅 Tauri 生效，否则/失败返回 null */
+export async function getNoteVersionsFromBackend(noteId: string): Promise<BackendNoteVersion[] | null> {
+  const invoke = await getInvoke();
+  if (!invoke) return null;
+  try {
+    const rows = (await invoke("get_note_versions", { noteId })) as BackendNoteVersion[];
+    return Array.isArray(rows) ? rows : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 保存一条版本快照到后端；返回后端是否可用且成功（Tauri 生效，静默降级） */
+export async function saveNoteVersionToBackend(version: {
+  id: string;
+  note_id: string;
+  content: string;
+  title: string;
+  created_at: string;
+  label: string;
+}): Promise<boolean> {
+  const invoke = await getInvoke();
+  if (!invoke) return false;
+  try {
+    await invoke("save_note_version", { version });
+    return true;
+  } catch {
+    // 忽略：保存版本失败不阻断笔记主体保存
+    return false;
+  }
+}
+
+/** 更新某条版本快照内容到后端；返回是否成功（Tauri 可用时） */
+export async function updateVersionToBackend(version: {
+  id: string;
+  note_id: string;
+  content: string;
+  title: string;
+  created_at: string;
+  label: string;
+}): Promise<boolean> {
+  const invoke = await getInvoke();
+  if (!invoke) return false;
+  try {
+    await invoke("update_version", { version });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 删除单条版本到后端；返回是否成功 */
+export async function deleteVersionFromBackend(versionId: string): Promise<boolean> {
+  const invoke = await getInvoke();
+  if (!invoke) return false;
+  try {
+    await invoke("delete_version", { versionId });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 清空某篇笔记的全部版本到后端；返回是否成功 */
+export async function clearVersionsFromBackend(noteId: string): Promise<boolean> {
+  const invoke = await getInvoke();
+  if (!invoke) return false;
+  try {
+    await invoke("clear_versions", { noteId });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 将某条历史版本恢复到当前笔记（覆盖内容与标题）；仅 Tauri 生效，返回是否成功 */
+export async function restoreVersionFromBackend(noteId: string, versionId: string): Promise<boolean> {
+  const invoke = await getInvoke();
+  if (!invoke) return false;
+  try {
+    await invoke("restore_version", { noteId, versionId });
+    return true;
+  } catch {
+    return false;
   }
 }
 

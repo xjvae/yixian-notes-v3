@@ -347,6 +347,7 @@ export function LayoutManager() {
       addNote: noteOps.handleNewNote,
       encryptNote: noteOps.handleNoteEncrypt,
       decryptNote: noteOps.handleNoteDecrypt,
+      reEncryptNote: noteOps.handleNoteReEncrypt,
       setNoteLocked: noteOps.handleSetNoteLocked,
       importNotes: noteOps.handleImportNotes,
       batchUpdate: noteOps.handleBatchUpdate,

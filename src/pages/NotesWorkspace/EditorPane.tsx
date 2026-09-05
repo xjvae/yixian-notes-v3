@@ -59,6 +59,16 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import NoteBreadcrumb from '@/components/NoteBreadcrumb';
 import { EditorSkeleton } from '@/components/SkeletonLoaders';
+import {
+  listNoteVersions,
+  saveNoteVersion,
+  restoreNoteVersion,
+  saveMilestoneVersion,
+  deleteVersionRecord,
+  clearVersionRecords,
+} from '@/lib/noteVersions';
+import { genId } from '@/lib/id';
+import { RefreshCw, Bookmark, Trash2 } from 'lucide-react';
 
 // 子组件
 import EditorToolbar from './EditorToolbar';
@@ -74,7 +84,7 @@ import { useEditorHistory } from './hooks/useEditorHistory';
 import { htmlToMarkdown, markdownToHtml, markdownToPlainText } from '@/lib/markdown';
 import { stripHtmlToText, plainTextToExcerpt } from '@/lib/text';
 import { WEATHER_OPTIONS, MOOD_OPTIONS } from '@/lib/noteMeta';
-import { isNoteEncrypted } from '@/lib/note-sec';
+import { isNoteEncrypted, decryptNoteSec } from '@/lib/note-sec';
 
 // 类型
 import type { EditorPaneProps, VersionInfo } from './types';
@@ -95,7 +105,7 @@ export default memo(function EditorPane({
   note,
   onUpdate,
   onEncrypt,
-  onDecrypt,
+  onReEncrypt,
   onToggleFavorite,
   onDelete,
   onRestore,
@@ -120,16 +130,22 @@ export default memo(function EditorPane({
   // 编辑模式：富文本 / Markdown 源码
   const [isMarkdownMode, setIsMarkdownMode] = useState(false);
   const [mdSource, setMdSource] = useState('');
-  // 加密弹窗：mode 为 encrypt（设置口令加密）或 decrypt（输入口令解锁）
+  // 加密弹窗：mode 为 encrypt（设置口令加密）或 decrypt（输入口令访问）
   const [encryptDialog, setEncryptDialog] = useState<'encrypt' | 'decrypt' | null>(null);
   const [encryptPassword, setEncryptPassword] = useState('');
   const [encryptConfirm, setEncryptConfirm] = useState('');
   const [encryptBusy, setEncryptBusy] = useState(false);
   const [encryptError, setEncryptError] = useState('');
+  // 会话内解密：已在本会话用口令打开加密笔记（明文仅驻留内存，编辑通过重加密回写，存储始终为密文）
+  const [decSession, setDecSession] = useState<{ noteId: string; pw: string; title: string; content: string } | null>(null);
+  const decSessionRef = useRef(decSession);
+  decSessionRef.current = decSession;
   // 私密笔记正文遮罩：true=临时显示正文，false=遮罩隐藏
   const [revealedPrivate, setRevealedPrivate] = useState(false);
   // 富文本正文是否为空（用于空状态占位提示）
   const [richEmpty, setRichEmpty] = useState(true);
+  // 持久化的历史版本（来自后端 SQLite note_versions 表）
+  const [histVersions, setHistVersions] = useState<VersionInfo[]>([]);
 
   // --- 同步 Hook ---
   const {
@@ -146,9 +162,17 @@ export default memo(function EditorPane({
   } = useEditorSync({
     noteId: note?.id,
     onSave: (updates) => {
-      if (note) {
-        onUpdate(note.id, updates);
+      if (!note) return;
+      // 会话内解密：把改动用同一口令重加密写回密文，绝不把明文写回 content（保持加密态）
+      const ds = decSessionRef.current;
+      if (ds && ds.noteId === note.id && isNoteEncrypted(note)) {
+        const nextTitle = updates.title ?? ds.title;
+        void onReEncrypt?.(note.id, ds.pw, nextTitle, updates.content);
+        setDecSession({ ...ds, title: nextTitle, content: updates.content });
+        return;
       }
+      onUpdate(note.id, updates);
+      saveSnapshot(updates.content);
     },
     getEditorHtml: () => editorRef.current?.innerHTML ?? '',
     getEditorText: () => editorRef.current?.innerText ?? '',
@@ -236,21 +260,195 @@ export default memo(function EditorPane({
   );
 
   // --- 版本历史 ---
-  // 说明：当前没有持久化多版本存储，因此仅展示真实的“当前版本”，
-  // 避免用伪造的旧版本误导用户去“恢复”不存在的快照。
+  // 展示“当前版本”（实时）+ 多份历史快照（后端 SQLite / 本地 localStorage）。
+  // 切换笔记时清空并重新加载该笔记的历史版本。
+  const lastSnapRef = useRef<{ noteId: string; content: string } | null>(null);
+  const titleRef = useRef(title);
+  titleRef.current = title;
+
+  // 保存当前笔记内容为一条历史快照（内容变化才保存，避免刷屏），并实时反映到侧边栏
+  const saveSnapshot = useCallback(
+    (contentOverride?: string) => {
+      if (!note) return;
+      const noteId = note.id;
+      const content = contentOverride ?? editorRef.current?.innerHTML ?? note.content ?? '';
+      if (lastSnapRef.current && lastSnapRef.current.noteId === noteId && lastSnapRef.current.content === content) {
+        return;
+      }
+      lastSnapRef.current = { noteId, content };
+      const rec = {
+        id: genId('ver'),
+        noteId,
+        title: titleRef.current || '无标题笔记',
+        content,
+        createdAt: Date.now(),
+        label: '自动保存',
+        milestone: false,
+      };
+      void saveNoteVersion(rec).then((saved) => {
+        if (!saved || !noteIdRef.current || noteIdRef.current !== noteId) return;
+        const v = saved.record;
+        setHistVersions((prev) => {
+          // 内容去重：移除同内容旧条，再置顶最新一条（合并/新增都反映）
+          const next = prev.filter((x) => x.content !== v.content);
+          return [
+            {
+              id: v.id,
+              timestamp: v.createdAt,
+              label: v.label,
+              title: v.title,
+              content: v.content,
+              excerpt: v.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').slice(0, 80),
+              isCurrent: false,
+            },
+            ...next,
+          ];
+        });
+      });
+    },
+    [note],
+  );
+
+  // 切换笔记：清空内存态版本，并异步加载该笔记的历史版本（带竞态保护，
+  // 避免快速切换时旧请求覆盖新笔记的列表）
+  const noteIdRef = useRef<string | null>(null);
+  noteIdRef.current = note?.id ?? null;
+  const loadTokenRef = useRef(0);
+
+  useEffect(() => {
+    setHistVersions([]);
+    lastSnapRef.current = null;
+    const noteId = note?.id;
+    if (!noteId) return;
+    const token = ++loadTokenRef.current;
+    (async () => {
+      const rows = await listNoteVersions(noteId);
+      if (!rows) return;
+      // 已切换到其它笔记则丢弃过期结果
+      if (token !== loadTokenRef.current) return;
+      setHistVersions(
+        rows.map((v) => ({
+          id: v.id,
+          timestamp: v.createdAt,
+          label: v.label,
+          title: v.title,
+          content: v.content,
+          excerpt: v.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').slice(0, 80),
+          isCurrent: false,
+          milestone: v.milestone,
+        })),
+      );
+    })();
+  }, [note?.id]);
+
+  // 展示顺序：当前版本置顶，其后为历史版本（时间倒序）
   const versions = useMemo<VersionInfo[]>(() => {
     if (!note) return [];
+    // 加密笔记在会话内已解密时，明文仅驻留内存（note.content 为空），
+    // 「当前版本」需用解密后的明文来统计字数与摘要，否则会误显示为 0 字。
+    const ds = decSessionRef.current;
+    const currentDec = ds && ds.noteId === note.id ? ds : null;
+    const currentContent = currentDec ? currentDec.content : note.content;
+    const currentExcerpt = currentDec
+      ? currentDec.title + ' ' + stripHtmlToText(currentContent).slice(0, 80)
+      : note.excerpt;
     return [
-      { id: 'current', timestamp: note.updatedAt, label: '当前版本', title: note.title, content: note.content, excerpt: note.excerpt, isCurrent: true },
+      {
+        id: 'current', timestamp: note.updatedAt, label: '当前版本',
+        title: currentDec ? currentDec.title : note.title,
+        content: currentContent, excerpt: currentExcerpt, isCurrent: true,
+      },
+      ...histVersions,
     ];
-  }, [note?.id, note?.title, note?.content, note?.excerpt, note?.updatedAt]);
+  }, [note?.id, note?.title, note?.content, note?.excerpt, note?.updatedAt, histVersions, decSession]);
+
+  // 恢复历史版本到当前笔记
+  const handleRestoreVersion = useCallback(
+    async (v: VersionInfo) => {
+      if (!note || v.isCurrent) return;
+      const ok = await restoreNoteVersion(note.id, v.id);
+      if (!ok) {
+        toast.error('恢复失败');
+        return;
+      }
+      onUpdate(note.id, {
+        title: v.title,
+        content: v.content,
+        excerpt: v.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').slice(0, 80),
+        updatedAt: Date.now(),
+      });
+      setTitle(v.title);
+      if (editorRef.current) {
+        editorRef.current.innerHTML = v.content;
+        const plain = editorRef.current.innerText ?? '';
+        setWordCount(plain.replace(/\s/g, '').length);
+        setRichEmpty(!plain.trim());
+      }
+      // 恢复后该版本变为当前内容，清空旧快照缓存
+      lastSnapRef.current = { noteId: note.id, content: v.content };
+      toast.success('已恢复到该版本');
+    },
+    [note, onUpdate],
+  );
+
+  // 将当前内容保存为一个命名里程碑版本（不被节流合并/裁剪）
+  const handleSaveMilestone = useCallback(async () => {
+    if (!note) return;
+    const content = editorRef.current?.innerHTML ?? note.content ?? '';
+    void saveMilestoneVersion({
+      id: genId('ver'),
+      noteId: note.id,
+      title: titleRef.current || '无标题笔记',
+      content,
+      createdAt: Date.now(),
+      label: `里程碑 ${format(Date.now(), 'MM-dd HH:mm')}`,
+      milestone: true,
+    }).then((v) => {
+      setHistVersions((prev) => [
+        {
+          id: v.id,
+          timestamp: v.createdAt,
+          label: v.label,
+          title: v.title,
+          content: v.content,
+          excerpt: v.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').slice(0, 80),
+          isCurrent: false,
+          milestone: true,
+        },
+        ...prev,
+      ]);
+      toast.success('已保存为里程碑版本');
+    });
+  }, [note]);
+
+  // 删除单条历史版本（ask 确认后从本地移除）
+  const handleDeleteVersion = useCallback(
+    (v: VersionInfo) => {
+      if (!note || v.isCurrent) return;
+      deleteVersionRecord(note.id, v.id);
+      setHistVersions((prev) => prev.filter((x) => x.id !== v.id));
+      toast.success('已删除该版本');
+    },
+    [note],
+  );
+
+  // 清空所有历史版本
+  const handleClearVersions = useCallback(() => {
+    if (!note) return;
+    clearVersionRecords(note.id);
+    setHistVersions([]);
+    toast.success('已清空历史版本');
+  }, [note]);
 
   // --- 切换笔记时重置内容 ---
   useEffect(() => {
     if (note && editorRef.current) {
-      editorRef.current.innerHTML = note.content;
+      // 会话内已解密时，用解出的明文填充；否则用已保存内容（加密笔记即占位空）
+      const ds = decSessionRef.current;
+      const plain = ds && ds.noteId === note.id ? ds.content : note.content;
+      editorRef.current.innerHTML = plain;
     }
-    // 切换笔记后回到富文本模式并清空 Markdown 源码
+    // 切换后回到富文本模式并清空 Markdown 源码
     setIsMarkdownMode(false);
     setMdSource('');
     resetSaveState();
@@ -264,6 +462,27 @@ export default memo(function EditorPane({
     // 切换笔记后回到"默认遮罩隐藏"私密态
     setRevealedPrivate(false);
   }, [note?.id]);
+
+  // 会话内解密弹出后：锁定遮罩移除、富文本 DOM 重挂载为空，需用解出的明文回填编辑器，
+  // 避免用户看到空正文/自动保存用空白覆盖（解密内容始终只驻留内存 + 重加密回写，不入库明文）。
+  const decFillRef = useRef<{ noteId: string | null; done: boolean }>({ noteId: null, done: false });
+  useEffect(() => {
+    const ds = decSessionRef.current;
+    const dsMatch = !!note && !!ds && ds.noteId === note.id;
+    if (!dsMatch) {
+      decFillRef.current = { noteId: note?.id ?? null, done: false };
+      return;
+    }
+    if (!editorRef.current || isMarkdownMode) return;
+    // 仅在同笔记首次建立会话时填充一次，避免覆盖输入中的光标
+    if (decFillRef.current.done && decFillRef.current.noteId === note.id) return;
+    editorRef.current.innerHTML = ds.content ?? '';
+    const text = stripHtmlToText(ds.content);
+    setWordCount(text.replace(/\s/g, '').length);
+    setRichEmpty(!(ds.content ?? '').trim());
+    setTitle(ds.title);
+    decFillRef.current = { noteId: note.id, done: true };
+  }, [decSession, note, isMarkdownMode]);
 
   // --- 私密笔记从遮罩揭示正文时，富文本 DOM 为重新挂载的空节点，须以已保存内容填充 ---
   useEffect(() => {
@@ -348,6 +567,7 @@ export default memo(function EditorPane({
       const excerpt =
         plainTextToExcerpt(plain, 80);
       onUpdate(note.id, { content: html, excerpt, updatedAt: Date.now() });
+      saveSnapshot(html);
       setWordCount(plain.replace(/\s/g, '').length);
       setSaved(false);
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -356,7 +576,7 @@ export default memo(function EditorPane({
         setLastSavedAt(Date.now());
       }, 500);
     },
-    [note, onUpdate, setWordCount, setSaved, saveTimerRef, setLastSavedAt],
+    [note, onUpdate, saveSnapshot, setWordCount, setSaved, saveTimerRef, setLastSavedAt],
   );
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -381,8 +601,10 @@ export default memo(function EditorPane({
   const isDeleted = note?.isDeleted ?? false;
   const notebook = notebooks.find((n) => n.id === note?.notebookId);
 
-  // --- 加密操作：为当前笔记设置口令加密 / 输入口令解锁 ---
+  // --- 加密操作：为当前笔记设置口令加密 / 输入口令查看 ---
   const isEncrypted = note ? isNoteEncrypted(note) : false;
+  // 当前笔记在本会话内已用口令打开（明文仅驻留内存，保存走重加密回写密文）
+  const decOpen = !!decSession && decSession.noteId === note?.id;
 
   const openEncryptDialog = useCallback(() => {
     if (!note) return;
@@ -415,20 +637,32 @@ export default memo(function EditorPane({
         if (ok) toast.success('笔记已加密，请牢记口令');
         else setEncryptError('加密失败，请重试');
       } else {
-        ok = (await onDecrypt?.(note.id, password)) || false;
-        if (ok) toast.success('已解锁笔记');
-        else setEncryptError('口令错误，无法解锁');
+        // decrypt：在本会话内用口令解开查看（不入库明文），保存时用同一口令重加密写回密文
+        if (note.enc_data) {
+          const sec = await decryptNoteSec(password, note.enc_data);
+          if (sec) {
+            setDecSession({ noteId: note.id, pw: password, title: sec.title, content: sec.content });
+            setTitle(sec.title);
+            ok = true;
+            toast.success('已解锁，可在本会话内编辑');
+          } else {
+            setEncryptError('口令错误，无法查看');
+          }
+        } else {
+          setEncryptError('该笔记缺少密文数据');
+        }
       }
       if (ok) { setEncryptDialog(null); setEncryptPassword(''); setEncryptConfirm(''); }
     } finally {
       setEncryptBusy(false);
     }
-  }, [note, encryptDialog, encryptPassword, encryptConfirm, onEncrypt, onDecrypt]);
+  }, [note, encryptDialog, encryptPassword, encryptConfirm, onEncrypt]);
 
-  // 加密笔记切换到另一篇未加密笔记时，关闭弹窗（避免残留旧状态）
+  // 加密笔记切换到另一篇时，关闭弹窗并撤销旧会话（会话只属于某篇笔记，便于换篇或换库）
   useEffect(() => {
-    if (!note || !isNoteEncrypted(note)) {
-      setEncryptDialog(null);
+    if (!note) return;
+    if (decSessionRef.current && decSessionRef.current.noteId !== note.id) {
+      setDecSession(null);
     }
   }, [note?.id]);
 
@@ -731,7 +965,7 @@ export default memo(function EditorPane({
       </div>
 
       {/* 编辑区 + 历史侧边栏（加密笔记显示锁定遮罩，私密笔记默认正文遮罩，均避免明文泄露） */}
-      {isEncrypted || note.locked ? (
+      {(isEncrypted || note.locked) && !decOpen ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center p-8 bg-muted/20">
           <div className="size-16 rounded-xl bg-card border border-border shadow-sm flex items-center justify-center mb-4">
             <Lock className="size-7 text-warning" />
@@ -905,14 +1139,39 @@ export default memo(function EditorPane({
                   <History className="size-4 text-primary" />
                   版本历史
                 </h3>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={() => setShowHistory(false)}
-                >
-                  <X className="size-3.5" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-[11px]"
+                    onClick={() => void handleSaveMilestone()}
+                    title="将当前内容保存为一个命名里程碑版本"
+                  >
+                    <Bookmark className="size-3.5" />
+                    标记
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-[11px] text-muted-foreground hover:text-destructive"
+                    onClick={() => {
+                      if (versions.length <= 1) return;
+                      if (window.confirm('确定清空全部历史版本吗？此操作不可撤销。')) handleClearVersions();
+                    }}
+                    title="清空全部历史版本"
+                  >
+                    <Trash2 className="size-3.5" />
+                    清空
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={() => setShowHistory(false)}
+                  >
+                    <X className="size-3.5" />
+                  </Button>
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto p-3 space-y-1">
                 {versions.map((v, i) => (
@@ -927,7 +1186,7 @@ export default memo(function EditorPane({
                         <div
                           className={cn(
                             'size-2.5 rounded-full shrink-0',
-                            v.isCurrent ? 'bg-primary' : 'bg-border',
+                            v.isCurrent ? 'bg-primary' : v.milestone ? 'bg-amber-500' : 'bg-border',
                           )}
                         />
                         {i < versions.length - 1 && (
@@ -936,26 +1195,71 @@ export default memo(function EditorPane({
                       </div>
                       <div className="flex-1 pb-3">
                         <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-xs font-medium">{v.label}</span>
-                          {v.isCurrent && (
+                          <span className="text-xs font-medium flex items-center gap-1">
+                            {v.milestone && <Bookmark className="size-3 text-amber-500" />}
+                            {v.label}
+                          </span>
+                          {v.isCurrent ? (
                             <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
                               当前
                             </Badge>
-                          )}
+                          ) : v.milestone ? (
+                            <Badge className="text-[10px] h-4 px-1.5 bg-amber-500/15 text-amber-600 border-amber-500/30">
+                              里程碑
+                            </Badge>
+                          ) : null}
                         </div>
-                        <div className="text-[11px] text-muted-foreground mb-1.5">
-                          {format(v.timestamp, 'MM-dd HH:mm')}
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[11px] text-muted-foreground">
+                            {format(v.timestamp, 'MM-dd HH:mm')}
+                          </span>
+                          {/* 相对上一版（时间更旧一条）的字数变化 */}
+                          {(() => {
+                            const curLen = v.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').length;
+                            const older = versions[i + 1];
+                            if (!older) return <span className="text-[10px] text-muted-foreground">{curLen} 字</span>;
+                            const olderLen = older.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').length;
+                            const delta = curLen - olderLen;
+                            if (!v.isCurrent && delta === 0) return <span className="text-[10px] text-muted-foreground">{curLen} 字</span>;
+                            return (
+                              <span className={cn('text-[10px] font-medium', delta >= 0 ? 'text-emerald-600' : 'text-rose-500')}>
+                                {delta >= 0 ? `+${delta}` : delta} 字
+                              </span>
+                            );
+                          })()}
                         </div>
                         <div className="text-[11px] text-muted-foreground line-clamp-2 mb-2 bg-card/60 px-2 py-1.5 rounded">
                           {v.excerpt}
                         </div>
+                        {!v.isCurrent && (
+                          <div className="flex items-center gap-1">
+                            <button
+                            type="button"
+                            onClick={() => handleRestoreVersion(v)}
+                            className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 text-primary hover:bg-primary/10 transition-colors"
+                            title="恢复到当前笔记"
+                          >
+                            <RefreshCw className="size-3" />
+                            恢复此版本
+                          </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteVersion(v)}
+                              className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                              title="删除此版本"
+                            >
+                              <Trash2 className="size-3" />
+                              删除
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </motion.div>
                 ))}
               </div>
               <div className="shrink-0 px-3 py-2 border-t border-border/60 text-[11px] text-muted-foreground text-center">
-                自动保存 · 编辑历史可通过 Ctrl+Z（撤销）追溯
+                自动保存 · 点击「标记」可将当前内容保存为里程碑版本
               </div>
             </motion.aside>
           )}
