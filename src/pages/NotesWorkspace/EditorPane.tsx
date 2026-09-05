@@ -265,6 +265,16 @@ export default memo(function EditorPane({
     setRevealedPrivate(false);
   }, [note?.id]);
 
+  // --- 私密笔记从遮罩揭示正文时，富文本 DOM 为重新挂载的空节点，须以已保存内容填充 ---
+  useEffect(() => {
+    if (!revealedPrivate || isMarkdownMode || !note || !editorRef.current) return;
+    editorRef.current.innerHTML = note.content ?? '';
+    const text = (note.content ?? '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
+    setWordCount(text.replace(/\s/g, '').length);
+    setRichEmpty(!text.trim());
+    // 仅在遮罩隐藏→揭示切换时填充一次，避免在输入过程中覆盖光标
+  }, [revealedPrivate, isMarkdownMode, note?.id]);
+
   // --- 从 Markdown 切回富文本时：把已保存的 HTML 填回刚挂载的编辑 DOM ---
   // Markdown 模式下富文本 DOM 未挂载，切回时是新挂载的空 DOM，需据 note.content 重新填充；
   // 仅在“刚从 Markdown 切回”时填充，以免覆盖富文本模式下的正常输入与光标。
@@ -571,6 +581,13 @@ export default memo(function EditorPane({
           onEncrypt={openEncryptDialog}
           onTogglePrivate={() => {
             const next = !note.isPrivate;
+            // 标记私密前立即保存当前编辑内容（编辑器即将被遮罩卸载，
+            // debounce 的 triggerSave 在卸载后读不到 DOM，可能导致内容丢失）
+            if (next && note && editorRef.current) {
+              const html = editorRef.current.innerHTML;
+              const plain = editorRef.current.innerText ?? '';
+              onUpdate(note.id, { content: html, excerpt: plain.slice(0, 80), updatedAt: Date.now() });
+            }
             onUpdate(note.id, { isPrivate: next });
             // 取消私密时退出临时查看态；标记私密时默认遮罩隐藏
             setRevealedPrivate(false);

@@ -1,6 +1,6 @@
 {
   "productName": "YixianNotes",
-  "version": "3.1.1",
+  "version": "3.1.2",
   "identifier": "com.yixian.notes.v3",
   "build": {
     "beforeDevCommand": "npm run dev",
