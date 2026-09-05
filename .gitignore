@@ -70,3 +70,6 @@ src-tauri/target/
 
 # Packaged / portable builds
 *.zip
+
+# Local design / planning docs (not meant for the public repo)
+docs/
