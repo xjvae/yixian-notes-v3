@@ -73,3 +73,9 @@ src-tauri/target/
 
 # Local design / planning docs (not meant for the public repo)
 docs/
+
+# Local build / debug logs
+*.log
+
+# Tauri auto-generated schemas & capabilities (regenerated on each build)
+src-tauri/gen/
