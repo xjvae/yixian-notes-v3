@@ -8,7 +8,7 @@
 //      数据的加载、写入与后端桥接（渐进式同步）。
 // ============================================================
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   MOCK_NOTES,
   MOCK_TAGS,
@@ -81,64 +81,114 @@ export function useNotesRepository(activeWorkspaceId: string) {
   // - 非 Tauri / 失败 → 保持 localStorage 逻辑（渐进式降级）。
   const rawStoreRef = useRef<{ notes: INote[] }>({ notes });
   rawStoreRef.current = { notes };
+
+  // 从后端 SQLite 加载并合并本地加密密文，写回 notes。返回是否成功覆盖。
+  const reloadFromBackend = useCallback(async (): Promise<boolean> => {
+    const serverNotes = await loadNotesFromBackend();
+    if (serverNotes === null) return false;
+    if (serverNotes.length > 0) {
+      // SQLite 为真实源：覆盖本地，并合并 localStorage 缓存。
+      // 加密笔记保护：密文只存本地（enc_data），后端可能尚未同步或仅存于
+      // metadata。若本地已加密且携带密文，优先保留本地，避免重载后才解密丢失。
+      const localById = new Map(rawStoreRef.current.notes.map((n) => [n.id, n]));
+      const merged = serverNotes.map((server) => {
+        const local = localById.get(server.id);
+        if (local && isNoteEncrypted(local)) {
+          return { ...server, encrypted: true, enc_data: local.enc_data };
+        }
+        return server;
+      });
+      // 本地新增的加密笔记（后端尚不存在）也要保留密文
+      rawStoreRef.current.notes.forEach((local) => {
+        if (isNoteEncrypted(local) && !merged.some((s) => s.id === local.id)) {
+          merged.push(local);
+        }
+      });
+      setNotes(merged);
+      return true;
+    }
+    // 空库：把当前本地笔记作为种子一次性写入 SQLite
+    void syncNotesToBackend(rawStoreRef.current.notes);
+    return false;
+  }, [setNotes]);
+
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const serverNotes = await loadNotesFromBackend();
-      if (cancelled || serverNotes === null) return;
-      if (serverNotes.length > 0) {
-        // SQLite 为真实源：覆盖本地，并同步回 localStorage 缓存。
-        // 加密笔记保护：密文只存本地（enc_data），后端可能尚未同步或仅存于
-        // metadata。若本地已加密且携带密文，优先保留本地，避免重载后才解密丢失。
-        const localById = new Map(rawStoreRef.current.notes.map((n) => [n.id, n]));
-        const merged = serverNotes.map((server) => {
-          const local = localById.get(server.id);
-          if (local && isNoteEncrypted(local)) {
-            return { ...server, encrypted: true, enc_data: local.enc_data };
-          }
-          return server;
-        });
-        // 本地新增的加密笔记（后端尚不存在）也要保留密文
-        rawStoreRef.current.notes.forEach((local) => {
-          if (isNoteEncrypted(local) && !merged.some((s) => s.id === local.id)) {
-            merged.push(local);
-          }
-        });
-        setNotes(merged);
-      } else {
-        // 空库：把当前本地笔记作为种子一次性写入 SQLite
-        void syncNotesToBackend(rawStoreRef.current.notes);
-      }
-    })();
-    return () => { cancelled = true; };
-    // 仅在挂载时执行一次
+    void reloadFromBackend();
+    // 仅在挂载时执行一次，避免重复监听
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ─── 自动保存调度（阶段2）──────────────
-  // 不再"每次状态变更都立即触发 IPC"，改为状态变化后防抖批量全量镜像：
-  //  - 高频编辑（输入/拖拽/开关）期间不写后端，停顿后仅一次批量 IPC。
-  //  - 物理删除的笔记从 SQLite 镜像中显式删除（save_notes_batch 为 upsert，不删多余）。
-  const mirrorRef = useRef<{ lastNoteIds: Set<string> }>({ lastNoteIds: new Set() });
+  // 快捷新建笔记弹窗保存后：从 SQLite 重载，让新笔记立即出现在主列表；
+  // 然后用浏览器事件通知主窗口选中该笔记（activeNoteId 由 useNoteOperations 持有）。
+  useEffect(() => {
+    if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      if (cancelled) return;
+      listen<{ id?: string }>("popup:note-created", async (e) => {
+        const id = e.payload?.id;
+        await reloadFromBackend();
+        if (id) window.dispatchEvent(new CustomEvent("yixian:select-note", { detail: id }));
+      }).then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      });
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [reloadFromBackend]);
 
-  // 监听 notes 变化：防抖 500ms 后全量批量镜像到后端
+  // 快捷新建弹窗保存后会写入本工作区的 localStorage 笔记列表，
+  // 同源多窗口会触发 storage 事件；据此从 SQLite 重载，保证弹窗新建笔记即时可见。
+  const notesLocalKey = getStorageKey(NOTES_STORAGE_KEY, activeWorkspaceId);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === notesLocalKey) void reloadFromBackend();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [notesLocalKey, reloadFromBackend]);
+
+  // ─── 自动保存调度（阶段2） ──────────────
+  // 防抖 1000ms 后仅把「发生变化」的笔记增量 upsert（而非每次全量重写），
+  // 同时把物理删除的笔记从 SQLite 镜像中显式删除；便签/待办随同批量调度。
+  const mirrorRef = useRef<{ lastSynced: Map<string, string> }>({ lastSynced: new Map() });
+
+  // 笔记内容指纹：任一相关字段变化即视为「发生修改」。
+  const noteFingerprint = (n: INote) =>
+    JSON.stringify({
+      t: n.title, c: n.content, e: n.excerpt, nb: n.notebookId, tags: n.tags,
+      fav: n.isFavorite, pin: n.isPinned, del: n.isDeleted, ts: n.updatedAt,
+    });
+
+  // 监听 notes 变化：防抖 1s 后增量同步到后端。
   useEffect(() => {
     const timer = window.setTimeout(async () => {
+      const lastSynced = mirrorRef.current.lastSynced;
       try {
-        // 处理物理删除：上一次已镜像、但本次已从本地消失的 id
-        const removedIds: string[] = [];
-        mirrorRef.current.lastNoteIds.forEach((id) => {
-          if (removedIds.length < 200 && !notes.some((n) => n.id === id)) removedIds.push(id);
-        });
-        if (removedIds.length > 0) await deleteNotesFromBackend(removedIds);
-        await syncNotesToBackend(notes);
-        // 便签也进入同一调度，随笔记一起批量写入
-        await syncStickiesToBackend(stickyNotes);
-        // 待办进入同一调度，打通「计划 → 执行」后端落库
-        await syncTodosToBackend(todos);
+        // 仅挑选「新增或内容有变」的笔记，避免每次全量重写
+        const changed = notes.filter((n) => lastSynced.get(n.id) !== noteFingerprint(n));
+        // 上次已存在、但本次已从本地消失的 id → 物理删除
+        const removedIds = notes.length <= 0
+          ? []
+          : [...lastSynced.keys()].filter((id) => !notes.some((n) => n.id === id));
+        if (removedIds.length > 0) await deleteNotesFromBackend(removedIds.slice(0, 200));
+        if (changed.length > 0) await syncNotesToBackend(changed);
+        // 便签 / 待办仍随同一调度批量落库
+        if (stickyNotes.length > 0) await syncStickiesToBackend(stickyNotes);
+        if (todos.length > 0) await syncTodosToBackend(todos);
       } finally {
-        mirrorRef.current.lastNoteIds = new Set(notes.map((n) => n.id));
+        // 兜底：无论是否成功都更新 lastSynced，避免异常导致反复全量重发
+        mirrorRef.current.lastSynced =
+          notes.length === 0
+            ? new Map()
+            : new Map(notes.map((n) => [n.id, noteFingerprint(n)]));
       }
-    }, 500);
+    }, 1000);
     return () => window.clearTimeout(timer);
   }, [notes, stickyNotes, todos]);
 

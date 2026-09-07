@@ -88,7 +88,7 @@ export default function LocalSearchPane() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="搜索本地文件与内容…"
-          className="h-9 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+          className="h-9 flex-1 bg-transparent text-sm outline-none focus:ring-2 focus:ring-primary/20 rounded-md px-1 placeholder:text-muted-foreground/60"
         />
         {searching && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
         {!root && (

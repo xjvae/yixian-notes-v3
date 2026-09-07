@@ -78,7 +78,7 @@ export default function QuickOpenPane() {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder="搜索笔记、待办、采集项、标签…"
-          className="h-9 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+          className="h-9 flex-1 bg-transparent text-sm outline-none focus:ring-2 focus:ring-primary/20 rounded-md px-1 placeholder:text-muted-foreground/60"
         />
         {searching && <span className="text-xs text-muted-foreground">…</span>}
       </div>

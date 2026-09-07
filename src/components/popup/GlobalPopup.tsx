@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { X, GripHorizontal } from "lucide-react";
+import { handleDragStart } from "./windowDrag";
 import LocalSearchPane from "./LocalSearchPane";
 import NewNotePane from "./NewNotePane";
 import QuickOpenPane from "./QuickOpenPane";
@@ -101,6 +102,7 @@ function TitleBar({ action, onClose }: { action: PopupAction; onClose: () => voi
   return (
     <div
       data-tauri-drag-region
+      onMouseDown={handleDragStart}
       className="flex shrink-0 select-none items-center gap-2 border-b border-border/50 bg-muted/40 px-3 py-2"
     >
       <GripHorizontal className="size-4 text-muted-foreground/50" />

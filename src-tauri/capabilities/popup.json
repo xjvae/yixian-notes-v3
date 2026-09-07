@@ -1,0 +1,12 @@
+{
+  "identifier": "popup",
+  "description": "Permissions for the global popup window (local search / new note / quick open / clipboard panes).",
+  "windows": ["global-popup"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:event:allow-emit"
+  ]
+}

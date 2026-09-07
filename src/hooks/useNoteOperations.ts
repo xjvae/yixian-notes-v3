@@ -3,7 +3,7 @@
 // 阶段0/1 重构：将「读 mock + 读写 localStorage + 后端同步」的数据访问
 // 收口到 Repository 层（src/lib/repositories），本 Hook 只负责组合状态
 // 与操作逻辑，保持对外返回结构不变，调用方无需改动。
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
   MOCK_NOTES,
   type INote, type ITag, type IStickyNote, type ITodo, type ITemplate,
@@ -46,6 +46,18 @@ export function useNoteOperations(activeWorkspaceId: string) {
   // 笔记操作
   const handleNoteSelect = useCallback((id: string) => { setActiveNoteId(id); }, []);
   const handleFilterChange = useCallback((filter: string) => { setActiveFilter(filter); }, []);
+
+  // 监听快捷新建笔记弹窗选中事件：选中新笔记并切到“全部”列表，确保新笔记可见。
+  useEffect(() => {
+    const onSelect = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      if (!id) return;
+      setActiveNoteId(id);
+      setActiveFilter("all");
+    };
+    window.addEventListener("yixian:select-note", onSelect);
+    return () => window.removeEventListener("yixian:select-note", onSelect);
+  }, []);
 
   const handleNoteUpdate = useCallback((id: string, updates: Partial<INote>) => {
     setNotes((prev) => prev.map((n) => {

@@ -114,6 +114,7 @@ function PopupOpenBridge() {
   useEffect(() => {
     if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
     let unlisten: (() => void) | undefined;
+    let unlisten2: (() => void) | undefined;
     let cancelled = false;
     import("@tauri-apps/api/event").then(({ listen }) => {
       if (cancelled) return;
@@ -137,10 +138,20 @@ function PopupOpenBridge() {
         if (cancelled) fn();
         else unlisten = fn;
       });
+      // 快捷新建笔记：主窗口导航到笔记页即可。
+      // （笔记已由弹窗写库 = 由 notesRepository 监听同事件从 SQLite 重载，
+      //  选中则通过 yixian:select-note 浏览器事件由 useNoteOperations 处理。）
+      listen("popup:note-created", () => {
+        navigate("/notes");
+      }).then((fn) => {
+        if (cancelled) fn();
+        else unlisten2 = fn;
+      });
     }).catch(() => {});
     return () => {
       cancelled = true;
       unlisten?.();
+      unlisten2?.();
     };
   }, [navigate]);
   return null;

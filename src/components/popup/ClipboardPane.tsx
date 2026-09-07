@@ -82,7 +82,10 @@ export default function ClipboardPane() {
       </div>
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
         {items.length === 0 && (
-          <div className="py-10 text-center text-xs text-muted-foreground">暂无剪贴板历史</div>
+          <div className="flex flex-col items-center justify-center gap-2 py-12 text-center text-xs text-muted-foreground">
+            <Clipboard className="size-8" />
+            暂无剪贴板历史
+          </div>
         )}
         {items.map((item) => (
           <button

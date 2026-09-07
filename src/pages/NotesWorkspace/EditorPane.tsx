@@ -167,7 +167,11 @@ export default memo(function EditorPane({
       const ds = decSessionRef.current;
       if (ds && ds.noteId === note.id && isNoteEncrypted(note)) {
         const nextTitle = updates.title ?? ds.title;
-        void onReEncrypt?.(note.id, ds.pw, nextTitle, updates.content);
+        void onReEncrypt?.(note.id, ds.pw, {
+          title: nextTitle,
+          content: updates.content,
+          excerpt: updates.excerpt,
+        });
         setDecSession({ ...ds, title: nextTitle, content: updates.content });
         return;
       }
@@ -643,6 +647,9 @@ export default memo(function EditorPane({
           if (sec) {
             setDecSession({ noteId: note.id, pw: password, title: sec.title, content: sec.content });
             setTitle(sec.title);
+            // 无论当前处于富文本还是 Markdown 模式，都同步好 Markdown 源码，
+            // 避免「Markdown 模式解锁后源码为空」导致内容看似丢失。
+            setMdSource(htmlToMarkdown(sec.content));
             ok = true;
             toast.success('已解锁，可在本会话内编辑');
           } else {
@@ -870,7 +877,7 @@ export default memo(function EditorPane({
           onChange={handleTitleChange}
           className="text-2xl font-bold border-none px-0 h-auto focus-visible:ring-0 bg-transparent placeholder:text-muted-foreground/40"
           placeholder="无标题笔记"
-          disabled={isDeleted || isEncrypted}
+          disabled={isDeleted || (isEncrypted && !decOpen)}
         />
         <div className="flex items-center justify-between mt-3">
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -1215,7 +1222,12 @@ export default memo(function EditorPane({
                           </span>
                           {/* 相对上一版（时间更旧一条）的字数变化 */}
                           {(() => {
-                            const curLen = v.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').length;
+                            // 加密笔记：versions 表已用解密会话把明文写入当前条目 content，
+                            // 直接据此统计，避免依赖 Editor DOM（可能为空/未挂载）而误显示 0 字。
+                            const curLen = v.content
+                              .replace(/<[^>]*>/g, '')
+                              .replace(/&nbsp;/g, ' ')
+                              .length;
                             const older = versions[i + 1];
                             if (!older) return <span className="text-[10px] text-muted-foreground">{curLen} 字</span>;
                             const olderLen = older.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').length;

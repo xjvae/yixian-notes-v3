@@ -1,6 +1,7 @@
 // EditorPane 子组件共享类型定义
 
 import type { INote, INotebook, ITag } from '@/data/notes';
+import type { NoteSecContent } from '@/lib/note-sec';
 
 // --- 主组件 Props ---
 
@@ -12,7 +13,7 @@ export interface EditorPaneProps {
   /** 用独立口令解密并写回明文；口令错误返回 false */
   onDecrypt?: (id: string, password: string) => Promise<boolean>;
   /** 会话内编辑后，用同一口令重加密写回密文（存储始终为密文，不写明文） */
-  onReEncrypt?: (id: string, password: string, title: string, content: string) => Promise<boolean>;
+  onReEncrypt?: (id: string, password: string, content: NoteSecContent) => Promise<boolean>;
   onToggleFavorite: (id: string) => void;
   onDelete: (id: string) => void;
   onRestore: (id: string) => void;

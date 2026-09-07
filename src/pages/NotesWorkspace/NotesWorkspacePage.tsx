@@ -4,6 +4,7 @@ import NoteListPane from './NoteListPane';
 import EditorPane from './EditorPane';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { toast } from 'sonner';
+import type { NoteSecContent } from '@/lib/note-sec';
 
 interface WorkspaceContext {
   notes: any[];
@@ -19,7 +20,7 @@ interface WorkspaceContext {
   newNote: () => void;
   encryptNote: (id: string, password: string) => Promise<boolean>;
   decryptNote: (id: string, password: string) => Promise<boolean>;
-  reEncryptNote: (id: string, password: string, title: string, content: string) => Promise<boolean>;
+  reEncryptNote: (id: string, password: string, content: NoteSecContent) => Promise<boolean>;
   batchUpdate: (ids: string[], updates: Partial<any>) => void;
   batchUpdateMeta: (ids: string[], updates: Partial<any>) => void;
   batchDelete: (ids: string[], permanent?: boolean) => void;

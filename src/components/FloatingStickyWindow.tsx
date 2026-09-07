@@ -1373,7 +1373,7 @@ export default function FloatingStickyWindow() {
                 ? "设置独立加密口令"
                 : secPrompt === "lock"
                   ? "输入口令并解除加密（写回明文）"
-                  : "输入口令查看（只读）"}
+                  : "输入口令查看"}
             </div>
             <input
               type="password"

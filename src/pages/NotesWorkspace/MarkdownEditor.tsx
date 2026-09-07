@@ -3,7 +3,7 @@
 // 提供 Markdown 源码编辑 + 实时预览。通过 "编辑 / 预览 / 分屏" 三种子视图切换。
 // 对外仅暴露 value / onChange / disabled，由外部（EditorPane）统一管理状态与转换。
 
-import { memo, useState } from 'react';
+import { memo, useState, type RefObject } from 'react';
 import { PenLine, Eye, Columns2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MarkdownView from '@/components/Markdown/MarkdownView';
@@ -19,6 +19,8 @@ interface MarkdownEditorProps {
   disabled?: boolean;
   /** 占位提示 */
   placeholder?: string;
+  /** 暴露源码文本框 ref，供外部工具栏在光标处做快捷插入（可选） */
+  textRef?: RefObject<HTMLTextAreaElement | null>;
 }
 
 const MODES: { key: MarkdownViewMode; label: string; icon: typeof PenLine }[] = [
@@ -32,6 +34,7 @@ function MarkdownEditorPane({
   onChange,
   disabled,
   placeholder,
+  textRef,
 }: MarkdownEditorProps) {
   const [mode, setMode] = useState<MarkdownViewMode>('split');
   const showWrite = mode !== 'preview';
@@ -66,6 +69,7 @@ function MarkdownEditorPane({
         {showWrite && (
           <div className="flex-1 min-w-0 overflow-hidden">
             <textarea
+              ref={textRef}
               value={value}
               onChange={(e) => onChange(e.target.value)}
               disabled={disabled}
