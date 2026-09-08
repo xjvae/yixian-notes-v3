@@ -1,10 +1,21 @@
-// 笔记编辑器面板组件（主入口）
+// 富文本 + Markdown 双模式笔记编辑器（主入口）
 //
-// 组合式结构，将工具栏、状态栏、标签管理、附件等功能拆分为独立子组件。
+// 组合式结构，将工具栏、状态栏、标签管理、历史版本等功能拆分为独立子组件。
+// 富文本编辑基于 TipTap（ProseMirror），提供稳定的文档模型与原生撤销/重做。
 // 对外 Props 接口保持不变，外部调用方无需修改。
 
-import { useState, useMemo, useCallback, memo, useRef, useEffect, lazy, Suspense } from 'react';
 import {
+  useState,
+  useMemo,
+  useCallback,
+  memo,
+  useRef,
+  useEffect,
+  lazy,
+  Suspense,
+} from 'react';
+import {
+  type LucideIcon,
   FolderOpen,
   Check,
   X,
@@ -20,17 +31,12 @@ import {
   Languages,
   FileEdit,
   ListOrdered,
-  Scissors,
-  Clipboard,
-  ClipboardPaste,
-  Table,
-  CheckSquare,
-  Link as LinkIcon,
-  Image as ImageIcon,
-  Code,
   Lock,
   Unlock,
   KeyRound,
+  RefreshCw,
+  Bookmark,
+  Trash2,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -42,14 +48,6 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-  ContextMenuShortcut,
-} from '@/components/ui/context-menu';
 const AIAssistantPanel = lazy(() => import('@/components/AIAssistantPanel'));
 import { MOCK_NOTEBOOKS, MOCK_TAGS, MOCK_NOTES } from '@/data/notes';
 import { format } from 'date-fns';
@@ -68,20 +66,30 @@ import {
   clearVersionRecords,
 } from '@/lib/noteVersions';
 import { genId } from '@/lib/id';
-import { RefreshCw, Bookmark, Trash2 } from 'lucide-react';
 
 // 子组件
 import EditorToolbar from './EditorToolbar';
 import EditorStatusBar from './EditorStatusBar';
 import EditorTagsPanel from './EditorTagsPanel';
 import MarkdownEditorPane from './MarkdownEditor';
+import RichTextEditor from './RichTextEditor';
+import EditorToc from './EditorToc';
 
-// Hooks
+// TipTap 编辑器
+import { useEditor, type Editor } from '@tiptap/react';
+import {
+  buildExtensions,
+  applyHtml,
+  editorHtml,
+  isEditorEmpty,
+  htmlToMarkdownSource,
+} from './editor/extensions';
+
+// Hook
 import { useEditorSync } from './hooks/useEditorSync';
-import { useEditorHistory } from './hooks/useEditorHistory';
 
 // 工具函数
-import { htmlToMarkdown, markdownToHtml, markdownToPlainText } from '@/lib/markdown';
+import { markdownToHtml, markdownToPlainText } from '@/lib/markdown';
 import { stripHtmlToText, plainTextToExcerpt } from '@/lib/text';
 import { WEATHER_OPTIONS, MOOD_OPTIONS } from '@/lib/noteMeta';
 import { isNoteEncrypted, decryptNoteSec } from '@/lib/note-sec';
@@ -98,6 +106,25 @@ function formatRelativeTime(timestamp: number): string {
   if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`;
   return '今天';
 }
+
+// 从 HTML 提取展示用纯文本（用于字数/摘要等）
+function plainFromHtml(html: string): string {
+  return stripHtmlToText(html).replace(/\s/g, '');
+}
+
+// AI 右键菜单项：行为、图标、文案
+const AI_MENU_ITEMS: ReadonlyArray<[string, LucideIcon, string]> = [
+  ['continue', Wand2, '续写'],
+  ['polish', Sparkles, '润色'],
+  ['shorten', Minimize2, '缩短'],
+  ['expand', Maximize2, '扩写'],
+  ['summarize', FileText, '总结'],
+  ['translate', Languages, '翻译'],
+];
+const AI_MENU_HEADS: ReadonlyArray<[string, LucideIcon, string]> = [
+  ['headline', FileEdit, '起标题'],
+  ['outline', ListOrdered, '列大纲'],
+];
 
 // --- 主组件 ---
 
@@ -119,11 +146,17 @@ export default memo(function EditorPane({
   onNewNote,
   onOpenNote,
 }: EditorPaneProps) {
-  const editorRef = useRef<HTMLDivElement>(null);
+  // TipTap 编辑器实例引用（供命令/序列化读取）
+  const editorRef = useRef<Editor | null>(null);
   const [title, setTitle] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  // 目录（TOC）显示开关与所在位置（左 / 右）
+  const [showToc, setShowToc] = useState(false);
+  const [tocPosition, setTocPosition] = useState<'left' | 'right'>('right');
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [selectedText, setSelectedText] = useState('');
+  const [rev, setRev] = useState(0); // 驱动撤销/重做状态刷新
+  void rev;
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; text: string } | null>(null);
   const [insertDialog, setInsertDialog] = useState<{ type: 'link' | 'image' } | null>(null);
   const [insertValue, setInsertValue] = useState('');
@@ -136,24 +169,52 @@ export default memo(function EditorPane({
   const [encryptConfirm, setEncryptConfirm] = useState('');
   const [encryptBusy, setEncryptBusy] = useState(false);
   const [encryptError, setEncryptError] = useState('');
-  // 会话内解密：已在本会话用口令打开加密笔记（明文仅驻留内存，编辑通过重加密回写，存储始终为密文）
+  // 会话内解密状态（明文仅驻留内存；保存通过重加密回写密文）
   const [decSession, setDecSession] = useState<{ noteId: string; pw: string; title: string; content: string } | null>(null);
   const decSessionRef = useRef(decSession);
   decSessionRef.current = decSession;
-  // 私密笔记正文遮罩：true=临时显示正文，false=遮罩隐藏
+  // 私密笔记正文遮罩
   const [revealedPrivate, setRevealedPrivate] = useState(false);
   // 富文本正文是否为空（用于空状态占位提示）
   const [richEmpty, setRichEmpty] = useState(true);
-  // 持久化的历史版本（来自后端 SQLite note_versions 表）
+  // 持久化历史版本（来自后端 SQLite note_versions 表）
   const [histVersions, setHistVersions] = useState<VersionInfo[]>([]);
 
-  // --- 同步 Hook ---
+  const isDeleted = note?.isDeleted ?? false;
+  const isEncrypted = note ? isNoteEncrypted(note) : false;
+  // 当前笔记在本会话内已用口令打开
+  const decOpen = !!decSession && decSession.noteId === note?.id;
+
+  // 读取编辑器当前 HTML / 纯文本（闭包读取 editorRef）
+  const getEditorHtml = useCallback(() => (editorRef.current ? editorHtml(editorRef.current) : ''), []);
+  const getEditorText = useCallback(() => (editorRef.current ? editorRef.current.getText().trim() : ''), []);
+
+  // 便捷函数：决定当前明文（普通/解密后的）
+  const contentFor = useCallback(
+    (n: typeof note, ds: typeof decSession) => {
+      if (!n) return '';
+      if (ds && ds.noteId === n.id) return ds.content;
+      return n.content ?? '';
+    },
+    [],
+  );
+
+  // 将指定 HTML 写入编辑器（content 由模型管控，非受控 DOM 直写）
+  const setInternalHtml = useCallback((html: string) => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    applyHtml(ed, html);
+    if (typeof ed?.commands?.setTextSelection === 'function') {
+      ed.commands.setTextSelection(0);
+    }
+  }, []);
+
+  // --- 同步 Hook（自动保存） ---
   const {
     saved,
     lastSavedAt,
     wordCount,
     triggerSave,
-    handleContentInput,
     setWordCount,
     setSaved,
     setLastSavedAt,
@@ -178,49 +239,126 @@ export default memo(function EditorPane({
       onUpdate(note.id, updates);
       saveSnapshot(updates.content);
     },
-    getEditorHtml: () => editorRef.current?.innerHTML ?? '',
-    getEditorText: () => editorRef.current?.innerText ?? '',
+    getEditorHtml,
+    getEditorText,
     title,
   });
 
-  // --- 撤销重做 Hook ---
-  const { canUndo, canRedo, record, undo, redo } = useEditorHistory({
-    maxHistory: 50,
-    mergeWindowMs: 2000,
-    getSnapshot: () => editorRef.current?.innerHTML ?? '',
-    applySnapshot: (snapshot) => {
-      if (editorRef.current && note) {
-        editorRef.current.innerHTML = snapshot;
-        const plain = editorRef.current.innerText ?? '';
-        const excerpt = plain.slice(0, 80);
-        onUpdate(note.id, { content: snapshot, excerpt, updatedAt: Date.now() });
-        setWordCount(plain.replace(/\s/g, '').length);
+  // 处理剪贴板粘贴：拖/粘贴图片文件时读取为 base64 data URL 并插入
+  const pasteImagesFromClipboard = useCallback((event: ClipboardEvent): boolean => {
+    const ed = editorRef.current;
+    if (!ed) return false;
+    const items = event.clipboardData?.items;
+    if (!items) return false;
+    const files: File[] = [];
+    for (let i = 0; i < items.length; i += 1) {
+      // 只处理真正的图片文件（排除已复制为文本/HTML 的图片，避免重复插入）
+      if (items[i].type.startsWith('image/') && items[i].kind === 'file') {
+        const file = items[i].getAsFile();
+        if (file) files.push(file);
       }
+    }
+    if (files.length === 0) return false;
+    event.preventDefault();
+    // 记录粘贴时刻的光标位置，读取完成后回填覆盖选择，确保图片落在原位
+    const at = ed.state.selection.from;
+    // 逐一读取并插入，多图按顺序插入
+    let pending = files.length;
+    const frags: string[] = [];
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const src = reader.result as string;
+        frags.push(src);
+        pending -= 1;
+        if (pending === 0 && ed && !ed.isDestroyed) {
+          const chain = ed.chain().focus().setTextSelection(at);
+          frags.forEach((s) => chain.setImage({ src: s }));
+          chain.insertContent('<p></p>').run();
+          triggerSave();
+          setRev((r) => r + 1);
+        }
+      };
+      reader.onerror = () => {
+        pending -= 1;
+      };
+      reader.readAsDataURL(file);
+    });
+    return true;
+  }, [triggerSave]);
+
+  // editable：可编辑态（未删除、非 Markdown 模式时由 RichTextEditor 控制）
+  const editable = !isDeleted && !isMarkdownMode && !!(note && ( !isNoteEncrypted(note) || decOpen ));
+
+  // TipTap 编辑器实例
+  const editor = useEditor({
+    extensions: buildExtensions('开始写下你的第一篇内容…'),
+    content: '',
+    editable: editable || false,
+    immediatelyRender: false,
+    editorProps: {
+      handlePaste: (_view, event) => pasteImagesFromClipboard(event),
+      handleDrop: (_view, event, _slice, moved) => {
+        // 支持从系统文件直接拖拽图片进编辑区
+        const t = event as unknown as DragEvent;
+        const dataTransfer = t.dataTransfer;
+        if (dataTransfer && moved && dataTransfer.files.length > 0) {
+          const imageFiles = Array.from(dataTransfer.files).filter((f) => f.type.startsWith('image/'));
+          if (imageFiles.length > 0) {
+            event.preventDefault();
+            const ptEvt = { clipboardData: dataTransfer } as ClipboardEvent;
+            return pasteImagesFromClipboard(ptEvt);
+          }
+        }
+        return false;
+      },
+    },
+    onCreate: ({ editor: ed }) => {
+      editorRef.current = ed;
+      if (note) setInternalHtml(contentFor(note, decSessionRef.current));
+    },
+    onUpdate: () => {
+      const ed = editorRef.current;
+      if (!ed) return;
+      setRichEmpty(isEditorEmpty(ed));
+      triggerSave();
+      setRev((r) => r + 1);
+    },
+    onSelectionUpdate: () => {
+      const ed = editorRef.current;
+      if (ed) setWordCount(ed.getText().split('').length);
     },
   });
+  editorRef.current = editor ?? null;
 
+  // 撤销 / 重做（原生历史栈，remove 自定义 innerHTML 快照逻辑）
+  const canUndo = !!editor?.can?.().undo();
+  const canRedo = !!editor?.can?.().redo();
   const handleUndo = useCallback(() => {
-    undo();
-    toast.info('已撤销');
-  }, [undo]);
-
+    const ed = editorRef.current;
+    if (!ed) return;
+    ed.commands.undo();
+    setRev((r) => r + 1);
+  }, []);
   const handleRedo = useCallback(() => {
-    redo();
-    toast.info('已重做');
-  }, [redo]);
+    const ed = editorRef.current;
+    if (!ed) return;
+    ed.commands.redo();
+    setRev((r) => r + 1);
+  }, []);
 
   // --- AI 助手 ---
   const getSelectedText = useCallback(() => {
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0) {
-      return sel.toString().trim();
+    const ed = editorRef.current;
+    if (ed && !ed.isDestroyed) {
+      return ed.state.doc.textBetween(ed.state.selection.from, ed.state.selection.to).trim();
     }
-    return '';
+    const sel = window.getSelection();
+    return sel && sel.rangeCount > 0 ? sel.toString().trim() : '';
   }, []);
 
   const handleAIClick = useCallback(() => {
-    const text = getSelectedText();
-    setSelectedText(text);
+    setSelectedText(getSelectedText());
     setAiPanelOpen(true);
   }, [getSelectedText]);
 
@@ -231,20 +369,20 @@ export default memo(function EditorPane({
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // AI 接受替换
+  // AI 接受替换（通过 editor 命令，避免 string replace 破坏文档合法性）
   const handleAIAccept = useCallback(
     (newText: string) => {
-      if (!editorRef.current || !selectedText) return;
-      const html = editorRef.current.innerHTML;
-      const updated = html.replace(selectedText, newText.replace(/\n/g, '<br/>'));
-      editorRef.current.innerHTML = updated;
-      const plain = editorRef.current.innerText ?? '';
-      const excerpt = plain.slice(0, 80);
+      const ed = editorRef.current;
+      if (!ed || !selectedText) return;
+      ed.chain().focus().insertContent(newText.replace(/\n/g, '<br/>')).run();
+      const html = editorHtml(ed);
+      const plain = stripHtmlToText(html);
       if (note) {
-        onUpdate(note.id, { content: updated, excerpt, updatedAt: Date.now() });
+        onUpdate(note.id, { content: html, excerpt: plain.slice(0, 80), updatedAt: Date.now() });
       }
       setWordCount(plain.replace(/\s/g, '').length);
       setAiPanelOpen(false);
+      setRev((r) => r + 1);
     },
     [note, onUpdate, selectedText],
   );
@@ -256,26 +394,26 @@ export default memo(function EditorPane({
       setAiPanelOpen(true);
       setContextMenu(null);
       setTimeout(() => {
-        const event = new CustomEvent('ai-quick-action', { detail: { action } });
-        window.dispatchEvent(event);
+        window.dispatchEvent(new CustomEvent('ai-quick-action', { detail: { action } }));
       }, 50);
     },
     [],
   );
 
   // --- 版本历史 ---
-  // 展示“当前版本”（实时）+ 多份历史快照（后端 SQLite / 本地 localStorage）。
-  // 切换笔记时清空并重新加载该笔记的历史版本。
   const lastSnapRef = useRef<{ noteId: string; content: string } | null>(null);
   const titleRef = useRef(title);
   titleRef.current = title;
+  const noteIdRef = useRef<string | null>(null);
+  noteIdRef.current = note?.id ?? null;
+  const loadTokenRef = useRef(0);
 
-  // 保存当前笔记内容为一条历史快照（内容变化才保存，避免刷屏），并实时反映到侧边栏
+  // 保存当前内容为一条历史快照（内容变化才保存，避免刷屏）
   const saveSnapshot = useCallback(
     (contentOverride?: string) => {
       if (!note) return;
       const noteId = note.id;
-      const content = contentOverride ?? editorRef.current?.innerHTML ?? note.content ?? '';
+      const content = contentOverride ?? editorHtml(editorRef.current!);
       if (lastSnapRef.current && lastSnapRef.current.noteId === noteId && lastSnapRef.current.content === content) {
         return;
       }
@@ -293,7 +431,6 @@ export default memo(function EditorPane({
         if (!saved || !noteIdRef.current || noteIdRef.current !== noteId) return;
         const v = saved.record;
         setHistVersions((prev) => {
-          // 内容去重：移除同内容旧条，再置顶最新一条（合并/新增都反映）
           const next = prev.filter((x) => x.content !== v.content);
           return [
             {
@@ -302,7 +439,7 @@ export default memo(function EditorPane({
               label: v.label,
               title: v.title,
               content: v.content,
-              excerpt: v.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').slice(0, 80),
+              excerpt: plainFromHtml(v.content).slice(0, 80),
               isCurrent: false,
             },
             ...next,
@@ -310,15 +447,10 @@ export default memo(function EditorPane({
         });
       });
     },
-    [note],
+    [note, editorHtml],
   );
 
-  // 切换笔记：清空内存态版本，并异步加载该笔记的历史版本（带竞态保护，
-  // 避免快速切换时旧请求覆盖新笔记的列表）
-  const noteIdRef = useRef<string | null>(null);
-  noteIdRef.current = note?.id ?? null;
-  const loadTokenRef = useRef(0);
-
+  // 切换笔记：清空内存态版本，异步加载该笔记历史版本（带竞态保护）
   useEffect(() => {
     setHistVersions([]);
     lastSnapRef.current = null;
@@ -328,7 +460,6 @@ export default memo(function EditorPane({
     (async () => {
       const rows = await listNoteVersions(noteId);
       if (!rows) return;
-      // 已切换到其它笔记则丢弃过期结果
       if (token !== loadTokenRef.current) return;
       setHistVersions(
         rows.map((v) => ({
@@ -337,7 +468,7 @@ export default memo(function EditorPane({
           label: v.label,
           title: v.title,
           content: v.content,
-          excerpt: v.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').slice(0, 80),
+          excerpt: plainFromHtml(v.content).slice(0, 80),
           isCurrent: false,
           milestone: v.milestone,
         })),
@@ -345,16 +476,14 @@ export default memo(function EditorPane({
     })();
   }, [note?.id]);
 
-  // 展示顺序：当前版本置顶，其后为历史版本（时间倒序）
+  // 展示顺序：当前版本置顶，其后历史（时间倒序）
   const versions = useMemo<VersionInfo[]>(() => {
     if (!note) return [];
-    // 加密笔记在会话内已解密时，明文仅驻留内存（note.content 为空），
-    // 「当前版本」需用解密后的明文来统计字数与摘要，否则会误显示为 0 字。
     const ds = decSessionRef.current;
     const currentDec = ds && ds.noteId === note.id ? ds : null;
     const currentContent = currentDec ? currentDec.content : note.content;
     const currentExcerpt = currentDec
-      ? currentDec.title + ' ' + stripHtmlToText(currentContent).slice(0, 80)
+      ? currentDec.title + ' ' + plainFromHtml(currentContent).slice(0, 80)
       : note.excerpt;
     return [
       {
@@ -366,7 +495,7 @@ export default memo(function EditorPane({
     ];
   }, [note?.id, note?.title, note?.content, note?.excerpt, note?.updatedAt, histVersions, decSession]);
 
-  // 恢复历史版本到当前笔记
+  // 恢复历史版本
   const handleRestoreVersion = useCallback(
     async (v: VersionInfo) => {
       if (!note || v.isCurrent) return;
@@ -378,27 +507,27 @@ export default memo(function EditorPane({
       onUpdate(note.id, {
         title: v.title,
         content: v.content,
-        excerpt: v.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').slice(0, 80),
+        excerpt: plainFromHtml(v.content).slice(0, 80),
         updatedAt: Date.now(),
       });
       setTitle(v.title);
-      if (editorRef.current) {
-        editorRef.current.innerHTML = v.content;
-        const plain = editorRef.current.innerText ?? '';
-        setWordCount(plain.replace(/\s/g, '').length);
-        setRichEmpty(!plain.trim());
+      const ed = editorRef.current;
+      if (ed) {
+        applyHtml(ed, v.content);
+        const plain = plainFromHtml(v.content);
+        setWordCount(plain.length);
+        setRichEmpty(!plain);
       }
-      // 恢复后该版本变为当前内容，清空旧快照缓存
       lastSnapRef.current = { noteId: note.id, content: v.content };
       toast.success('已恢复到该版本');
     },
     [note, onUpdate],
   );
 
-  // 将当前内容保存为一个命名里程碑版本（不被节流合并/裁剪）
+  // 当前内容保存为里程碑版本
   const handleSaveMilestone = useCallback(async () => {
     if (!note) return;
-    const content = editorRef.current?.innerHTML ?? note.content ?? '';
+    const content = getEditorHtml();
     void saveMilestoneVersion({
       id: genId('ver'),
       noteId: note.id,
@@ -415,7 +544,7 @@ export default memo(function EditorPane({
           label: v.label,
           title: v.title,
           content: v.content,
-          excerpt: v.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').slice(0, 80),
+          excerpt: plainFromHtml(v.content).slice(0, 80),
           isCurrent: false,
           milestone: true,
         },
@@ -423,9 +552,8 @@ export default memo(function EditorPane({
       ]);
       toast.success('已保存为里程碑版本');
     });
-  }, [note]);
+  }, [note, getEditorHtml]);
 
-  // 删除单条历史版本（ask 确认后从本地移除）
   const handleDeleteVersion = useCallback(
     (v: VersionInfo) => {
       if (!note || v.isCurrent) return;
@@ -436,7 +564,6 @@ export default memo(function EditorPane({
     [note],
   );
 
-  // 清空所有历史版本
   const handleClearVersions = useCallback(() => {
     if (!note) return;
     clearVersionRecords(note.id);
@@ -444,31 +571,33 @@ export default memo(function EditorPane({
     toast.success('已清空历史版本');
   }, [note]);
 
-  // --- 切换笔记时重置内容 ---
+  // --- 切换笔记时重置编辑器内容 ---
+  const enteredNoteRef = useRef<string | null>(null);
+  const markdownBaseRef = useRef<string>('');
   useEffect(() => {
-    if (note && editorRef.current) {
-      // 会话内已解密时，用解出的明文填充；否则用已保存内容（加密笔记即占位空）
-      const ds = decSessionRef.current;
-      const plain = ds && ds.noteId === note.id ? ds.content : note.content;
-      editorRef.current.innerHTML = plain;
+    const noteId = note?.id ?? null;
+    if (noteId === enteredNoteRef.current) {
+      return;
     }
-    // 切换后回到富文本模式并清空 Markdown 源码
-    setIsMarkdownMode(false);
-    setMdSource('');
-    resetSaveState();
-    // 切换后重新同步标题与字数
+    enteredNoteRef.current = noteId;
+    markdownBaseRef.current = note ? note.content ?? '' : '';
+    const ed = editorRef.current;
     if (note) {
-      setTitle(note.title);
-      const text = note.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
-      setWordCount(text.replace(/\s/g, '').length);
-      setRichEmpty(!text.trim());
+      const content = contentFor(note, decSessionRef.current);
+      if (ed) applyHtml(ed, content);
+      setWordCount(plainFromHtml(content).length);
+      setRichEmpty(!plainFromHtml(content));
     }
-    // 切换笔记后回到"默认遮罩隐藏"私密态
+    resetSaveState();
     setRevealedPrivate(false);
+    setIsMarkdownMode(false);
+    // 同步标题
+    if (note && note.id !== titleRef.current) {
+      setTitle(note.title);
+    }
   }, [note?.id]);
 
-  // 会话内解密弹出后：锁定遮罩移除、富文本 DOM 重挂载为空，需用解出的明文回填编辑器，
-  // 避免用户看到空正文/自动保存用空白覆盖（解密内容始终只驻留内存 + 重加密回写，不入库明文）。
+  // 会话内解密后用明文回填编辑器（仅同一笔记首次建立会话时）
   const decFillRef = useRef<{ noteId: string | null; done: boolean }>({ noteId: null, done: false });
   useEffect(() => {
     const ds = decSessionRef.current;
@@ -477,33 +606,32 @@ export default memo(function EditorPane({
       decFillRef.current = { noteId: note?.id ?? null, done: false };
       return;
     }
-    if (!editorRef.current || isMarkdownMode) return;
-    // 仅在同笔记首次建立会话时填充一次，避免覆盖输入中的光标
-    if (decFillRef.current.done && decFillRef.current.noteId === note.id) return;
-    editorRef.current.innerHTML = ds.content ?? '';
-    const text = stripHtmlToText(ds.content);
-    setWordCount(text.replace(/\s/g, '').length);
-    setRichEmpty(!(ds.content ?? '').trim());
+    const ed = editorRef.current;
+    if (!ed || isMarkdownMode) return;
+    if (decFillRef.current.done && decFillRef.current.noteId === note?.id) return;
+    applyHtml(ed, ds.content ?? '');
+    const plain = plainFromHtml(ds.content);
+    setWordCount(plain.length);
+    setRichEmpty(!plain);
     setTitle(ds.title);
-    decFillRef.current = { noteId: note.id, done: true };
+    decFillRef.current = { noteId: note?.id ?? null, done: true };
   }, [decSession, note, isMarkdownMode]);
 
-  // --- 私密笔记从遮罩揭示正文时，富文本 DOM 为重新挂载的空节点，须以已保存内容填充 ---
+  // 私密笔记从遮罩揭示正文时，回填已保存内容
   useEffect(() => {
-    if (!revealedPrivate || isMarkdownMode || !note || !editorRef.current) return;
-    editorRef.current.innerHTML = note.content ?? '';
-    const text = (note.content ?? '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
-    setWordCount(text.replace(/\s/g, '').length);
-    setRichEmpty(!text.trim());
-    // 仅在遮罩隐藏→揭示切换时填充一次，避免在输入过程中覆盖光标
+    if (!revealedPrivate || isMarkdownMode || !note) return;
+    const ed = editorRef.current;
+    if (!ed) return;
+    const content = contentFor(note, decSessionRef.current);
+    applyHtml(ed, content);
+    const plain = plainFromHtml(content);
+    setWordCount(plain.length);
+    setRichEmpty(!plain);
   }, [revealedPrivate, isMarkdownMode, note?.id]);
 
-  // --- 从 Markdown 切回富文本时：把已保存的 HTML 填回刚挂载的编辑 DOM ---
-  // Markdown 模式下富文本 DOM 未挂载，切回时是新挂载的空 DOM，需据 note.content 重新填充；
-  // 仅在“刚从 Markdown 切回”时填充，以免覆盖富文本模式下的正常输入与光标。
+  // 从 Markdown 切回富文本时：重新挂载后回填 HTML
   const enteredRichRef = useRef(false);
   useEffect(() => {
-    // isMarkdownMode 的 effect 在渲染后运行；这里在切回富文本后填充一次
     if (isMarkdownMode) {
       enteredRichRef.current = true;
       return;
@@ -511,105 +639,61 @@ export default memo(function EditorPane({
     const justLeftMarkdown = enteredRichRef.current;
     enteredRichRef.current = false;
     if (justLeftMarkdown && note && editorRef.current) {
-      editorRef.current.innerHTML = note.content;
-      const text = stripHtmlToText(note.content);
-      setWordCount(text.replace(/\s/g, '').length);
+      const html = markdownBaseRef.current || (note.content ?? '');
+      applyHtml(editorRef.current, html);
+      const plain = plainFromHtml(html);
+      setWordCount(plain.length);
     }
   }, [isMarkdownMode, note]);
-
-  // --- 事件处理 ---
-  const onContentInput = useCallback(() => {
-    setRichEmpty(!editorRef.current?.textContent?.trim());
-    handleContentInput(record);
-  }, [handleContentInput, record]);
-
-  const handleTitleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setTitle(e.target.value);
-      triggerSave();
-    },
-    [triggerSave],
-  );
 
   // --- Markdown 模式切换 ---
   const handleToggleMarkdownMode = useCallback(() => {
     if (isMarkdownMode) {
-      // Markdown -> 富文本：把源码渲染回 HTML 并保存。
-      // 注意：Markdown 模式下富文本编辑 DOM 未挂载（editorRef.current 为 null），
-      // 因此必须直接基于 mdSource 生成 HTML 并写回 note.content，
-      // 而不能依赖 editorRef.current.innerHTML 赋值。
+      // Markdown -> 富文本：源码已在编辑中通过 handleMarkdownChange 同步为 HTML 保存，
+      // 直接以 note.content 作为回填 HTML。
       setIsMarkdownMode(false);
       if (note) {
-        const html = markdownToHtml(mdSource);
         const plain = markdownToPlainText(mdSource);
-        const excerpt =
-          plainTextToExcerpt(plain, 80);
-        onUpdate(note.id, { content: html, excerpt, updatedAt: Date.now() });
         setWordCount(plain.replace(/\s/g, '').length);
         setSaved(false);
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = setTimeout(() => {
-          setSaved(true);
-          setLastSavedAt(Date.now());
-        }, 500);
+        saveTimerRef.current = setTimeout(() => { setSaved(true); setLastSavedAt(Date.now()); }, 500);
       }
     } else {
       // 富文本 -> Markdown：用当前 HTML 生成源码
-      const html = editorRef.current?.innerHTML ?? note?.content ?? '';
-      setMdSource(htmlToMarkdown(html));
-      setIsMarkdownMode(true);
+      void toggleMarkdownSource(editorRef.current);
     }
-  }, [isMarkdownMode, note, mdSource, onUpdate, setWordCount, setSaved, saveTimerRef, setLastSavedAt]);
+  }, [isMarkdownMode, note, mdSource, setSaved, saveTimerRef, setLastSavedAt]);
 
-  // --- Markdown 源码变更：同步转成 HTML 保存，保证其它视图一致 ---
+  const toggleMarkdownSource = useCallback(async (ed: Editor | null) => {
+    const html = ed ? editorHtml(ed) : (note?.content ?? '');
+    const md = await htmlToMarkdownSource(html);
+    setMdSource(md);
+    setIsMarkdownMode(true);
+  }, [note, editorHtml]);
+
+  // --- Markdown 源码变更：同步转成 HTML 保存 ---
   const handleMarkdownChange = useCallback(
     (md: string) => {
       setMdSource(md);
       if (!note) return;
       const html = markdownToHtml(md);
       const plain = markdownToPlainText(md);
-      const excerpt =
-        plainTextToExcerpt(plain, 80);
-      onUpdate(note.id, { content: html, excerpt, updatedAt: Date.now() });
+      onUpdate(note.id, { content: html, excerpt: plainTextToExcerpt(plain, 80), updatedAt: Date.now() });
       saveSnapshot(html);
       setWordCount(plain.replace(/\s/g, '').length);
       setSaved(false);
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(() => {
-        setSaved(true);
-        setLastSavedAt(Date.now());
-      }, 500);
+      saveTimerRef.current = setTimeout(() => { setSaved(true); setLastSavedAt(Date.now()); }, 500);
     },
     [note, onUpdate, saveSnapshot, setWordCount, setSaved, saveTimerRef, setLastSavedAt],
   );
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      document.execCommand('insertHTML', false, '&nbsp;&nbsp;&nbsp;&nbsp;');
-    }
-  }, []);
+  const getNotebookName = (nbId: string) => MOCK_NOTEBOOKS.find((n) => n.id === nbId)?.name ?? '未分类';
 
-  const getNotebookName = (nbId: string) => {
-    const nb = MOCK_NOTEBOOKS.find((n) => n.id === nbId);
-    return nb?.name ?? '未分类';
-  };
-
-  const siblingNotes = useMemo(() => {
-    if (!note) return [];
-    return notes.filter(
-      (n) => n.notebookId === note.notebookId && n.id !== note.id && !n.isDeleted,
-    );
-  }, [note, notes]);
-
-  const isDeleted = note?.isDeleted ?? false;
   const notebook = notebooks.find((n) => n.id === note?.notebookId);
 
-  // --- 加密操作：为当前笔记设置口令加密 / 输入口令查看 ---
-  const isEncrypted = note ? isNoteEncrypted(note) : false;
-  // 当前笔记在本会话内已用口令打开（明文仅驻留内存，保存走重加密回写密文）
-  const decOpen = !!decSession && decSession.noteId === note?.id;
-
+  // --- 加密操作 ---
   const openEncryptDialog = useCallback(() => {
     if (!note) return;
     setEncryptPassword('');
@@ -641,15 +725,12 @@ export default memo(function EditorPane({
         if (ok) toast.success('笔记已加密，请牢记口令');
         else setEncryptError('加密失败，请重试');
       } else {
-        // decrypt：在本会话内用口令解开查看（不入库明文），保存时用同一口令重加密写回密文
         if (note.enc_data) {
           const sec = await decryptNoteSec(password, note.enc_data);
           if (sec) {
             setDecSession({ noteId: note.id, pw: password, title: sec.title, content: sec.content });
             setTitle(sec.title);
-            // 无论当前处于富文本还是 Markdown 模式，都同步好 Markdown 源码，
-            // 避免「Markdown 模式解锁后源码为空」导致内容看似丢失。
-            setMdSource(htmlToMarkdown(sec.content));
+            void htmlToMarkdownSource(sec.content).then(setMdSource);
             ok = true;
             toast.success('已解锁，可在本会话内编辑');
           } else {
@@ -665,7 +746,7 @@ export default memo(function EditorPane({
     }
   }, [note, encryptDialog, encryptPassword, encryptConfirm, onEncrypt]);
 
-  // 加密笔记切换到另一篇时，关闭弹窗并撤销旧会话（会话只属于某篇笔记，便于换篇或换库）
+  // 加密笔记切换到另一篇时关闭旧会话
   useEffect(() => {
     if (!note) return;
     if (decSessionRef.current && decSessionRef.current.noteId !== note.id) {
@@ -673,25 +754,7 @@ export default memo(function EditorPane({
     }
   }, [note?.id]);
 
-  // 编辑器右键命令执行
-  const execCmd = useCallback(
-    (cmd: string, value?: string) => {
-      document.execCommand(cmd, false, value);
-      if (editorRef.current && note) {
-        const html = editorRef.current.innerHTML;
-        const plain = editorRef.current.innerText ?? '';
-        const excerpt = plain.slice(0, 80);
-        onUpdate(note.id, { content: html, excerpt, updatedAt: Date.now() });
-        record('format', html);
-        setWordCount(plain.replace(/\s/g, '').length);
-        setSaved(false);
-        triggerSave();
-      }
-      setContextMenu(null);
-    },
-    [note, onUpdate, record, triggerSave],
-  );
-
+  // 插入链接 / 图片（TipTap 直接操作选区，不需要手动保存 Range，规避弹窗夺焦问题）
   const handleInsertLink = useCallback(() => {
     setInsertValue('https://');
     setInsertDialog({ type: 'link' });
@@ -705,25 +768,27 @@ export default memo(function EditorPane({
   const confirmInsert = useCallback(() => {
     const url = insertValue.trim();
     if (!url || !insertDialog) return;
-    if (insertDialog.type === 'link') execCmd('createLink', url);
-    else execCmd('insertImage', url);
+    const ed = editorRef.current;
+    if (!ed) return;
+    if (insertDialog.type === 'link') {
+      ed.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+    } else {
+      ed.chain().focus().setImage({ src: url }).run();
+    }
     setInsertDialog(null);
-  }, [insertValue, insertDialog, execCmd]);
+  }, [insertValue, insertDialog]);
 
   const handleInsertTable = useCallback(() => {
-    const tableHtml = '<table style="border-collapse:collapse;width:100%;margin:8px 0;border:1px solid var(--border)"><tr><th style="border:1px solid var(--border);padding:6px">列1</th><th style="border:1px solid var(--border);padding:6px">列2</th><th style="border:1px solid var(--border);padding:6px">列3</th></tr><tr><td style="border:1px solid var(--border);padding:6px">&nbsp;</td><td style="border:1px solid var(--border);padding:6px">&nbsp;</td><td style="border:1px solid var(--border);padding:6px">&nbsp;</td></tr></table>';
-    execCmd('insertHTML', tableHtml);
-  }, [execCmd]);
-
-  const handleInsertCodeBlock = useCallback(() => {
-    const codeHtml = '<pre style="background:var(--muted);padding:12px;border-radius:6px;font-family:monospace;font-size:13px"><code>// 在此输入代码</code></pre>';
-    execCmd('insertHTML', codeHtml);
-  }, [execCmd]);
+    const ed = editorRef.current;
+    if (!ed) return;
+    ed.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+  }, []);
 
   const handleInsertTodo = useCallback(() => {
-    const todoHtml = '<div style="display:flex;align-items:center;gap:6px"><input type="checkbox" /> <span>待办事项</span></div>';
-    execCmd('insertHTML', todoHtml);
-  }, [execCmd]);
+    const ed = editorRef.current;
+    if (!ed) return;
+    ed.chain().focus().toggleTaskList().run();
+  }, []);
 
   // --- 空状态 ---
   if (isLoading) {
@@ -740,28 +805,19 @@ export default memo(function EditorPane({
       .filter((n) => !n.isDeleted)
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, 4);
-
     return (
       <div className="flex flex-col items-center justify-center h-full text-center p-8">
         <div className="size-16 rounded-xl bg-muted flex items-center justify-center mb-4">
           <FolderOpen className="size-8 text-muted-foreground" />
         </div>
         <h3 className="text-lg font-medium text-foreground mb-2">选择一篇笔记</h3>
-        <p className="text-sm text-muted-foreground max-w-xs mb-5">
-          从左侧列表中选择一篇笔记开始编辑，或创建一篇新的笔记
-        </p>
-
+        <p className="text-sm text-muted-foreground max-w-xs mb-5">从左侧列表中选择一篇笔记开始编辑，或创建一篇新的笔记</p>
         {onNewNote && (
-          <Button
-            size="sm"
-            className="h-8 px-4 gap-1.5 text-xs mb-6"
-            onClick={onNewNote}
-          >
+          <Button size="sm" className="h-8 px-4 gap-1.5 text-xs mb-6" onClick={onNewNote}>
             <FileText className="size-3.5" />
             新建笔记
           </Button>
         )}
-
         {recentNotes.length > 0 && onOpenNote && (
           <div className="w-full max-w-xs">
             <div className="text-[11px] text-muted-foreground mb-2 text-left px-1">最近访问</div>
@@ -775,9 +831,7 @@ export default memo(function EditorPane({
                 >
                   <FileText className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                   <span className="flex-1 truncate">{n.title || '无标题笔记'}</span>
-                  <span className="text-[10px] text-muted-foreground shrink-0">
-                    {format(n.updatedAt, 'MM-dd')}
-                  </span>
+                  <span className="text-[10px] text-muted-foreground shrink-0">{format(n.updatedAt, 'MM-dd')}</span>
                 </button>
               ))}
             </div>
@@ -798,22 +852,22 @@ export default memo(function EditorPane({
     >
       {/* 顶部工具栏 */}
       <div className="shrink-0 border-b border-border/60">
-        {/* 面包屑 */}
         <div className="px-4 pt-2 pb-1">
           <NoteBreadcrumb
             workspace={{ id: 'ws1', name: workspaceName, color: workspaceColor ?? '#4A7C59', icon: '📝', archived: false, createdAt: 0 }}
             notebook={notebook}
             note={note}
-            sameNotebookNotes={siblingNotes}
+            sameNotebookNotes={notes.filter((n) => n.notebookId === note.notebookId && n.id !== note.id && !n.isDeleted)}
             onSelectNote={(id) => onNavigateNote?.(id)}
             onSelectNotebook={(id) => onNavigateNotebook?.(id)}
           />
         </div>
-        {/* 工具栏子组件 */}
         <EditorToolbar
+          editor={editorRef.current}
           canUndo={canUndo}
           canRedo={canRedo}
           showHistory={showHistory}
+          showToc={showToc}
           isFavorite={note.isFavorite}
           isDeleted={isDeleted}
           isMarkdownMode={isMarkdownMode}
@@ -822,15 +876,12 @@ export default memo(function EditorPane({
           onEncrypt={openEncryptDialog}
           onTogglePrivate={() => {
             const next = !note.isPrivate;
-            // 标记私密前立即保存当前编辑内容（编辑器即将被遮罩卸载，
-            // debounce 的 triggerSave 在卸载后读不到 DOM，可能导致内容丢失）
             if (next && note && editorRef.current) {
-              const html = editorRef.current.innerHTML;
-              const plain = editorRef.current.innerText ?? '';
+              const html = getEditorHtml();
+              const plain = plainFromHtml(html);
               onUpdate(note.id, { content: html, excerpt: plain.slice(0, 80), updatedAt: Date.now() });
             }
             onUpdate(note.id, { isPrivate: next });
-            // 取消私密时退出临时查看态；标记私密时默认遮罩隐藏
             setRevealedPrivate(false);
             toast.success(next ? '已标记私密，正文已隐藏' : '已取消私密');
           }}
@@ -838,25 +889,17 @@ export default memo(function EditorPane({
           onUndo={handleUndo}
           onRedo={handleRedo}
           onToggleHistory={() => setShowHistory((s) => !s)}
-          onToggleFavorite={() => {
-            onToggleFavorite(note.id);
-            toast.success(note.isFavorite ? '已取消收藏' : '已添加收藏');
-          }}
+          onToggleToc={() => setShowToc((s) => !s)}
+          onToggleFavorite={() => { onToggleFavorite(note.id); toast.success(note.isFavorite ? '已取消收藏' : '已添加收藏'); }}
           onAIClick={handleAIClick}
           onInsertLink={handleInsertLink}
           onInsertImage={handleInsertImage}
           onInsertTable={handleInsertTable}
-          onInsertCodeBlock={handleInsertCodeBlock}
           onInsertTodo={handleInsertTodo}
-          onDelete={() => {
-            onDelete(note.id);
-            toast.info('已移至回收站');
-          }}
+          onDelete={() => { onDelete(note.id); toast.info('已移至回收站'); }}
           onRestore={() => onRestore(note.id)}
           notebooks={notebooks}
-          onMoveNotebook={(nbId) => {
-            onUpdate(note.id, { notebookId: nbId });
-          }}
+          onMoveNotebook={(nbId) => onUpdate(note.id, { notebookId: nbId })}
           onExportNote={(format) => {
             exportAndDownload(note, {
               format,
@@ -874,55 +917,31 @@ export default memo(function EditorPane({
       <div className="shrink-0 px-8 pt-6 pb-3 border-b border-border/40">
         <Input
           value={title}
-          onChange={handleTitleChange}
+          onChange={(e) => { setTitle(e.target.value); triggerSave(); }}
           className="text-2xl font-bold border-none px-0 h-auto focus-visible:ring-0 bg-transparent placeholder:text-muted-foreground/40"
           placeholder="无标题笔记"
           disabled={isDeleted || (isEncrypted && !decOpen)}
         />
         <div className="flex items-center justify-between mt-3">
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <FolderOpen className="size-3" />
-              {getNotebookName(note.notebookId)}
-            </span>
-            <span className="flex items-center gap-1">
-              <Clock className="size-3" />
-              {format(note.updatedAt, 'yyyy-MM-dd HH:mm')}
-            </span>
+            <span className="flex items-center gap-1"><FolderOpen className="size-3" />{getNotebookName(note.notebookId)}</span>
+            <span className="flex items-center gap-1"><Clock className="size-3" />{format(note.updatedAt, 'yyyy-MM-dd HH:mm')}</span>
             <span className="flex items-center gap-1" aria-live="polite">
               {saved ? (
-                lastSavedAt ? (
-                  <>
-                    <Check className="size-3 text-success" />
-                    <span className="text-success/80">已保存 · {formatRelativeTime(lastSavedAt)}</span>
-                  </>
-                ) : (
-                  <>
-                    <Check className="size-3 text-success" />
-                    <span className="text-success/80">已保存</span>
-                  </>
-                )
+                lastSavedAt ? (<><Check className="size-3 text-success" /><span className="text-success/80">已保存 · {formatRelativeTime(lastSavedAt)}</span></>)
+                : (<><Check className="size-3 text-success" /><span className="text-success/80">已保存</span></>)
               ) : (
-                <>
-                  <span className="size-1.5 rounded-full bg-warning animate-pulse" />
-                  <span>保存中...</span>
-                </>
+                <><span className="size-1.5 rounded-full bg-warning animate-pulse" /><span>保存中...</span></>
               )}
             </span>
           </div>
           <EditorTagsPanel
             note={note}
             allTags={MOCK_TAGS}
-            onAddTag={(tagId) => {
-              onUpdate(note.id, { tags: [...note.tags, tagId] });
-              toast.success('已添加标签');
-            }}
-            onRemoveTag={(tagId) => {
-              onUpdate(note.id, { tags: note.tags.filter((t) => t !== tagId) });
-            }}
+            onAddTag={(tagId) => { onUpdate(note.id, { tags: [...note.tags, tagId] }); toast.success('已添加标签'); }}
+            onRemoveTag={(tagId) => { onUpdate(note.id, { tags: note.tags.filter((t) => t !== tagId) }); }}
           />
         </div>
-        {/* 天气 + 心情（可选元信息） */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-3" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground shrink-0">天气</span>
@@ -930,16 +949,9 @@ export default memo(function EditorPane({
               {WEATHER_OPTIONS.map((w) => {
                 const active = note.weather === w.value;
                 return (
-                  <button
-                    key={w.value}
-                    type="button"
-                    title={`${w.label}${active ? '（点击清除）' : ''}`}
-                    disabled={isDeleted}
+                  <button key={w.value} type="button" title={`${w.label}${active ? '（点击清除）' : ''}`} disabled={isDeleted}
                     onClick={() => onUpdate(note.id, { weather: active ? undefined : w.value })}
-                    className={`size-7 rounded-md flex items-center justify-center text-base transition-all ${
-                      active ? 'bg-primary/15 ring-1 ring-primary/40' : 'hover:bg-muted'
-                    }`}
-                  >
+                    className={`size-7 rounded-md flex items-center justify-center text-base transition-all ${active ? 'bg-primary/15 ring-1 ring-primary/40' : 'hover:bg-muted'}`}>
                     {w.icon}
                   </button>
                 );
@@ -952,16 +964,9 @@ export default memo(function EditorPane({
               {MOOD_OPTIONS.map((m) => {
                 const active = note.mood === m.value;
                 return (
-                  <button
-                    key={m.value}
-                    type="button"
-                    title={`${m.label}（${active ? '点击清除' : '点击选择'}）`}
-                    disabled={isDeleted}
+                  <button key={m.value} type="button" title={`${m.label}（${active ? '点击清除' : '点击选择'}）`} disabled={isDeleted}
                     onClick={() => onUpdate(note.id, { mood: active ? undefined : m.value })}
-                    className={`size-7 rounded-md flex items-center justify-center text-base transition ${
-                      active ? 'bg-primary/15 ring-1 ring-primary/40' : 'hover:bg-muted'
-                    }`}
-                  >
+                    className={`size-7 rounded-md flex items-center justify-center text-base transition ${active ? 'bg-primary/15 ring-1 ring-primary/40' : 'hover:bg-muted'}`}>
                     {m.icon}
                   </button>
                 );
@@ -971,23 +976,17 @@ export default memo(function EditorPane({
         </div>
       </div>
 
-      {/* 编辑区 + 历史侧边栏（加密笔记显示锁定遮罩，私密笔记默认正文遮罩，均避免明文泄露） */}
+      {/* 编辑区 + 历史侧边栏 */}
       {(isEncrypted || note.locked) && !decOpen ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center p-8 bg-muted/20">
           <div className="size-16 rounded-xl bg-card border border-border shadow-sm flex items-center justify-center mb-4">
             <Lock className="size-7 text-warning" />
           </div>
           <h3 className="text-lg font-medium text-foreground mb-2">此笔记已加密</h3>
-          <p className="text-sm text-muted-foreground max-w-xs mb-5">
-            需输入加密口令方可查看内容，口令不会保存在本地。
-          </p>
-          <Button size="sm" onClick={openEncryptDialog} disabled={isDeleted}>
-            <Unlock className="size-3.5 mr-1.5" />
-            输入口令解锁
-          </Button>
+          <p className="text-sm text-muted-foreground max-w-xs mb-5">需输入加密口令方可查看内容，口令不会保存在本地。</p>
+          <Button size="sm" onClick={openEncryptDialog} disabled={isDeleted}><Unlock className="size-3.5 mr-1.5" />输入口令解锁</Button>
         </div>
       ) : note.isPrivate && !revealedPrivate ? (
-        // 私密遮罩：点击临时查看全部正文（可编辑），再次可在工具栏"取消私密"或按钮切换
         <div
           role="button"
           tabIndex={0}
@@ -1000,465 +999,193 @@ export default memo(function EditorPane({
           </div>
           <h3 className="text-lg font-medium text-foreground mb-2">此笔记已标记为私密</h3>
           <p className="text-sm text-muted-foreground max-w-xs mb-5">正文已隐藏，点击下方按钮临时查看。</p>
-          <Button size="sm" onClick={(e) => { e.stopPropagation(); setRevealedPrivate(true); }} disabled={isDeleted}>
-            <Eye className="size-3.5 mr-1.5" />
-            点击查看正文
-          </Button>
+          <Button size="sm" onClick={(e) => { e.stopPropagation(); setRevealedPrivate(true); }} disabled={isDeleted}><Eye className="size-3.5 mr-1.5" />点击查看正文</Button>
         </div>
       ) : (
-      <div className="flex-1 flex overflow-hidden relative">
-        {note.isPrivate && (
-          <button
-            type="button"
-            onClick={() => setRevealedPrivate(false)}
-            className="absolute right-4 top-3 z-20 flex items-center gap-1 text-[11px] rounded-md px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors"
-            title="重新隐藏正文"
-          >
-            <EyeOff className="size-3.5" />
-            重新隐藏
-          </button>
-        )}
-        {isMarkdownMode ? (
-          <div className="flex-1 overflow-hidden">
-            <MarkdownEditorPane
-              value={mdSource}
-              onChange={handleMarkdownChange}
-              disabled={isDeleted}
-              placeholder="在此输入 Markdown 语法…"
+        <div className="flex-1 flex overflow-hidden relative">
+          {note.isPrivate && (
+            <button type="button" onClick={() => setRevealedPrivate(false)}
+              className="absolute right-4 top-3 z-20 flex items-center gap-1 text-[11px] rounded-md px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors" title="重新隐藏正文">
+              <EyeOff className="size-3.5" />重新隐藏
+            </button>
+          )}
+
+          {showToc && !isMarkdownMode && tocPosition === 'left' && (
+            <EditorToc
+              editor={editorRef.current}
+              position="left"
+              onPositionChange={setTocPosition}
+              onClose={() => setShowToc(false)}
             />
-          </div>
-        ) : (
-        <ContextMenu>
-          <ContextMenuTrigger asChild>
+          )}
+
+          {isMarkdownMode ? (
+            <div className="flex-1 overflow-hidden">
+              <MarkdownEditorPane value={mdSource} onChange={handleMarkdownChange} disabled={isDeleted} placeholder="在此输入 Markdown 语法…" />
+            </div>
+          ) : (
             <div className="flex-1 overflow-y-auto">
-              <div className="px-8 py-6 max-w-3xl mx-auto relative">
-                {richEmpty && !isDeleted && (
-                  <div
-                    className="absolute top-[52px] left-8 right-8 pointer-events-none select-none"
-                    onClick={() => editorRef.current?.focus()}
-                  >
-                    <p className="text-sm text-muted-foreground/60 leading-relaxed">
-                      开始写下你的第一篇内容…
-                      <br />
-                      支持 Markdown、图片、代码块、表格与 LaTeX 公式
-                    </p>
-                  </div>
-                )}
-                <div
-                  ref={editorRef}
-                  contentEditable={!isDeleted}
-                  suppressContentEditableWarning
-                  onInput={onContentInput}
-                  onKeyDown={handleKeyDown}
-                  onContextMenu={(e) => {
-                    const text = getSelectedText();
-                    setContextMenu(text ? { x: e.clientX, y: e.clientY, text } : null);
-                  }}
-                  onMouseUp={() => setSelectedText(getSelectedText())}
-                  className={cn(
-                    'min-h-[400px] outline-none prose prose-sm max-w-none leading-relaxed',
-                    'prose-headings:font-bold prose-headings:text-foreground',
-                    'prose-p:text-foreground prose-p:my-3',
-                    'prose-ul:my-3 prose-ol:my-3',
-                    'prose-blockquote:border-l-4 prose-blockquote:border-primary/30 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:text-muted-foreground prose-blockquote:my-4',
-                    'prose-pre:bg-muted prose-blockquote:bg-muted/30 prose-pre:rounded-lg prose-pre:p-3 prose-pre:text-xs',
-                    'prose-a:text-primary prose-a:no-underline hover:prose-a:underline',
-                    'prose-strong:text-foreground prose-em:text-foreground/80',
-                    isDeleted ? 'opacity-60' : '',
-                  )}
-                  style={{ minHeight: 'calc(100vh - 280px)' }}
+              <div className="max-w-3xl mx-auto relative">
+                <RichTextEditor
+                  editor={editor}
+                  disabled={!editable}
+                  placeholder="开始写下正文内容…"
+                  emptyHint={
+                    richEmpty && !isDeleted ? (
+                      <div className="pointer-events-none select-none">
+                        <p className="text-sm text-muted-foreground/60 leading-relaxed">
+                          开始写下你的第一篇内容…
+                          <br />支持 Markdown、图片、代码块、表格与 LaTeX 公式
+                        </p>
+                      </div>
+                    ) : undefined
+                  }
                 />
               </div>
             </div>
-          </ContextMenuTrigger>
-          <ContextMenuContent className="w-48">
-            <ContextMenuItem onClick={() => execCmd('cut')} className="text-xs cursor-pointer">
-              <Scissors className="size-3.5 mr-2" />
-              剪切
-              <ContextMenuShortcut>Ctrl+X</ContextMenuShortcut>
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => execCmd('copy')} className="text-xs cursor-pointer">
-              <Clipboard className="size-3.5 mr-2" />
-              复制
-              <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => execCmd('paste')} className="text-xs cursor-pointer">
-              <ClipboardPaste className="size-3.5 mr-2" />
-              粘贴
-              <ContextMenuShortcut>Ctrl+V</ContextMenuShortcut>
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => execCmd('selectAll')} className="text-xs cursor-pointer">
-              <CheckSquare className="size-3.5 mr-2" />
-              全选
-              <ContextMenuShortcut>Ctrl+A</ContextMenuShortcut>
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem onClick={handleInsertLink} className="text-xs cursor-pointer">
-              <LinkIcon className="size-3.5 mr-2" />
-              插入链接
-            </ContextMenuItem>
-            <ContextMenuItem onClick={handleInsertImage} className="text-xs cursor-pointer">
-              <ImageIcon className="size-3.5 mr-2" />
-              插入图片
-            </ContextMenuItem>
-            <ContextMenuItem onClick={handleInsertTable} className="text-xs cursor-pointer">
-              <Table className="size-3.5 mr-2" />
-              插入表格
-            </ContextMenuItem>
-            <ContextMenuItem onClick={handleInsertCodeBlock} className="text-xs cursor-pointer">
-              <Code className="size-3.5 mr-2" />
-              插入代码块
-            </ContextMenuItem>
-            <ContextMenuItem onClick={handleInsertTodo} className="text-xs cursor-pointer">
-              <CheckSquare className="size-3.5 mr-2" />
-              插入待办
-            </ContextMenuItem>
-            {contextMenu && contextMenu.text && (
-              <>
-                <ContextMenuSeparator />
-                <div className="px-2 py-1 text-[10px] text-muted-foreground">AI 写作</div>
-                <ContextMenuItem onClick={() => triggerAIAction('polish', contextMenu.text)} className="text-xs cursor-pointer">
-                  <Sparkles className="size-3.5 mr-2 text-primary" />
-                  智能润色
-                </ContextMenuItem>
-                <ContextMenuItem onClick={() => triggerAIAction('translate', contextMenu.text)} className="text-xs cursor-pointer">
-                  <Languages className="size-3.5 mr-2 text-primary" />
-                  翻译
-                </ContextMenuItem>
-              </>
-            )}
-          </ContextMenuContent>
-        </ContextMenu>
-        )}
-
-        {/* 版本历史侧边栏 */}
-        <AnimatePresence>
-          {showHistory && (
-            <motion.aside
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 280, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
-              className="shrink-0 border-l border-border/60 bg-muted/20 overflow-hidden flex flex-col"
-            >
-              <div className="shrink-0 px-4 py-3 border-b border-border/60 flex items-center justify-between">
-                <h3 className="text-sm font-semibold flex items-center gap-1.5">
-                  <History className="size-4 text-primary" />
-                  版本历史
-                </h3>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-[11px]"
-                    onClick={() => void handleSaveMilestone()}
-                    title="将当前内容保存为一个命名里程碑版本"
-                  >
-                    <Bookmark className="size-3.5" />
-                    标记
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-[11px] text-muted-foreground hover:text-destructive"
-                    onClick={() => {
-                      if (versions.length <= 1) return;
-                      if (window.confirm('确定清空全部历史版本吗？此操作不可撤销。')) handleClearVersions();
-                    }}
-                    title="清空全部历史版本"
-                  >
-                    <Trash2 className="size-3.5" />
-                    清空
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={() => setShowHistory(false)}
-                  >
-                    <X className="size-3.5" />
-                  </Button>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-3 space-y-1">
-                {versions.map((v, i) => (
-                  <motion.div
-                    key={v.id}
-                    initial={{ opacity: 0, x: 8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.2, delay: i * 0.04 }}
-                  >
-                    <div className="flex items-start gap-2 group">
-                      <div className="flex flex-col items-center pt-1.5">
-                        <div
-                          className={cn(
-                            'size-2.5 rounded-full shrink-0',
-                            v.isCurrent ? 'bg-primary' : v.milestone ? 'bg-amber-500' : 'bg-border',
-                          )}
-                        />
-                        {i < versions.length - 1 && (
-                          <div className="w-px flex-1 bg-border/50 mt-1" style={{ minHeight: 36 }} />
-                        )}
-                      </div>
-                      <div className="flex-1 pb-3">
-                        <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-xs font-medium flex items-center gap-1">
-                            {v.milestone && <Bookmark className="size-3 text-amber-500" />}
-                            {v.label}
-                          </span>
-                          {v.isCurrent ? (
-                            <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
-                              当前
-                            </Badge>
-                          ) : v.milestone ? (
-                            <Badge className="text-[10px] h-4 px-1.5 bg-amber-500/15 text-amber-600 border-amber-500/30">
-                              里程碑
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-[11px] text-muted-foreground">
-                            {format(v.timestamp, 'MM-dd HH:mm')}
-                          </span>
-                          {/* 相对上一版（时间更旧一条）的字数变化 */}
-                          {(() => {
-                            // 加密笔记：versions 表已用解密会话把明文写入当前条目 content，
-                            // 直接据此统计，避免依赖 Editor DOM（可能为空/未挂载）而误显示 0 字。
-                            const curLen = v.content
-                              .replace(/<[^>]*>/g, '')
-                              .replace(/&nbsp;/g, ' ')
-                              .length;
-                            const older = versions[i + 1];
-                            if (!older) return <span className="text-[10px] text-muted-foreground">{curLen} 字</span>;
-                            const olderLen = older.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').length;
-                            const delta = curLen - olderLen;
-                            if (!v.isCurrent && delta === 0) return <span className="text-[10px] text-muted-foreground">{curLen} 字</span>;
-                            return (
-                              <span className={cn('text-[10px] font-medium', delta >= 0 ? 'text-emerald-600' : 'text-rose-500')}>
-                                {delta >= 0 ? `+${delta}` : delta} 字
-                              </span>
-                            );
-                          })()}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground line-clamp-2 mb-2 bg-card/60 px-2 py-1.5 rounded">
-                          {v.excerpt}
-                        </div>
-                        {!v.isCurrent && (
-                          <div className="flex items-center gap-1">
-                            <button
-                            type="button"
-                            onClick={() => handleRestoreVersion(v)}
-                            className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 text-primary hover:bg-primary/10 transition-colors"
-                            title="恢复到当前笔记"
-                          >
-                            <RefreshCw className="size-3" />
-                            恢复此版本
-                          </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteVersion(v)}
-                              className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                              title="删除此版本"
-                            >
-                              <Trash2 className="size-3" />
-                              删除
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-              <div className="shrink-0 px-3 py-2 border-t border-border/60 text-[11px] text-muted-foreground text-center">
-                自动保存 · 点击「标记」可将当前内容保存为里程碑版本
-              </div>
-            </motion.aside>
           )}
-        </AnimatePresence>
-      </div>
+
+          {showToc && !isMarkdownMode && tocPosition === 'right' && (
+            <EditorToc
+              editor={editorRef.current}
+              position="right"
+              onPositionChange={setTocPosition}
+              onClose={() => setShowToc(false)}
+            />
+          )}
+
+          {/* 版本历史侧边栏 */}
+          <AnimatePresence>
+            {showHistory && (
+              <motion.aside
+                initial={{ width: 0, opacity: 0 }}
+                animate={{ width: 280, opacity: 1 }}
+                exit={{ width: 0, opacity: 0 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+                className="shrink-0 border-l border-border/60 bg-muted/20 overflow-hidden flex flex-col"
+              >
+                <div className="shrink-0 px-4 py-3 border-b border-border/60 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold flex items-center gap-1.5"><History className="size-4 text-primary" />版本历史</h3>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={() => void handleSaveMilestone()} title="将当前内容保存为一个命名里程碑版本"><Bookmark className="size-3.5" />标记</Button>
+                    <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px] text-muted-foreground hover:text-destructive"
+                      onClick={() => { if (versions.length <= 1) return; if (window.confirm('确定清空全部历史版本吗？此操作不可撤销。')) handleClearVersions(); }} title="清空全部历史版本">
+                      <Trash2 className="size-3.5" />清空
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setShowHistory(false)}><X className="size-3.5" /></Button>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto p-3 space-y-1">
+                  {versions.map((v, i) => (
+                    <motion.div key={v.id} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.2, delay: i * 0.04 }}>
+                      <div className="flex items-start gap-2 group">
+                        <div className="flex flex-col items-center pt-1.5">
+                          <div className={cn('size-2.5 rounded-full shrink-0', v.isCurrent ? 'bg-primary' : v.milestone ? 'bg-amber-500' : 'bg-border')} />
+                          {i < versions.length - 1 && <div className="w-px flex-1 bg-border/50 mt-1" style={{ minHeight: 36 }} />}
+                        </div>
+                        <div className="flex-1 pb-3">
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="text-xs font-medium flex items-center gap-1">{v.milestone && <Bookmark className="size-3 text-amber-500" />}{v.label}</span>
+                            {v.milestone ? (
+                              <Badge className="text-[10px] h-4 px-1.5 bg-amber-500/15 text-amber-600 border-amber-500/30">里程碑</Badge>
+                            ) : v.isCurrent ? (
+                              <Badge variant="secondary" className="text-[10px] h-4 px-1.5">当前</Badge>
+                            ) : null}
+                          </div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[11px] text-muted-foreground">{format(v.timestamp, 'MM-dd HH:mm')}</span>
+                            <span className="text-[10px] text-muted-foreground">{plainFromHtml(v.content).length} 字</span>
+                          </div>
+                          <div className="text-[11px] text-muted-foreground line-clamp-2 mb-2 bg-card/60 px-2 py-1.5 rounded">{v.excerpt}</div>
+                          {!v.isCurrent && (
+                            <div className="flex items-center gap-1">
+                              <button type="button" onClick={() => handleRestoreVersion(v)} className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 text-primary hover:bg-primary/10 transition-colors" title="恢复到当前笔记"><RefreshCw className="size-3" />恢复此版本</button>
+                              <button type="button" onClick={() => handleDeleteVersion(v)} className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="删除此版本"><Trash2 className="size-3" />删除</button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+                <div className="shrink-0 px-3 py-2 border-t border-border/60 text-[11px] text-muted-foreground text-center">自动保存 · 点击「标记」可将当前内容保存为里程碑版本</div>
+              </motion.aside>
+            )}
+          </AnimatePresence>
+        </div>
       )}
 
       {/* 底部状态栏 */}
-      <EditorStatusBar
-        workspaceName={workspaceName}
-        workspaceColor={workspaceColor}
-        wordCount={wordCount}
-        saved={saved}
-      />
+      <EditorStatusBar workspaceName={workspaceName} workspaceColor={workspaceColor} wordCount={wordCount} saved={saved} />
 
       {/* AI 助手面板 */}
       <Suspense fallback={null}>
-        <AIAssistantPanel
-          open={aiPanelOpen}
-          onOpenChange={setAiPanelOpen}
-          selectedText={selectedText}
-          onAccept={handleAIAccept}
-        />
+        <AIAssistantPanel open={aiPanelOpen} onOpenChange={setAiPanelOpen} selectedText={selectedText} onAccept={handleAIAccept} />
       </Suspense>
 
       {/* 选中文本右键菜单 */}
       <AnimatePresence>
         {contextMenu && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: -4 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.15 }}
-            className="fixed z-50 rounded-lg border border-border/60 bg-popover shadow-lg p-1 w-56"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
-          >
-            <div className="px-2 py-1.5 text-[10px] text-muted-foreground border-b border-border/30 mb-1">
-              AI 写作助手
-            </div>
-            <button
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent text-left"
-              onClick={() => triggerAIAction('continue', contextMenu.text)}
-            >
-              <Wand2 className="size-3.5 text-primary" />
-              续写
-            </button>
-            <button
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent text-left"
-              onClick={() => triggerAIAction('polish', contextMenu.text)}
-            >
-              <Sparkles className="size-3.5 text-primary" />
-              润色
-            </button>
-            <button
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent text-left"
-              onClick={() => triggerAIAction('shorten', contextMenu.text)}
-            >
-              <Minimize2 className="size-3.5 text-primary" />
-              缩短
-            </button>
-            <button
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent text-left"
-              onClick={() => triggerAIAction('expand', contextMenu.text)}
-            >
-              <Maximize2 className="size-3.5 text-primary" />
-              扩写
-            </button>
-            <button
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent text-left"
-              onClick={() => triggerAIAction('summarize', contextMenu.text)}
-            >
-              <FileText className="size-3.5 text-primary" />
-              总结
-            </button>
-            <button
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent text-left"
-              onClick={() => triggerAIAction('translate', contextMenu.text)}
-            >
-              <Languages className="size-3.5 text-primary" />
-              翻译
-            </button>
+          <motion.div initial={{ opacity: 0, scale: 0.95, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} transition={{ duration: 0.15 }}
+            className="fixed z-50 rounded-lg border border-border/60 bg-popover shadow-lg p-1 w-56" style={{ left: contextMenu.x, top: contextMenu.y }}>
+            <div className="px-2 py-1.5 text-[10px] text-muted-foreground border-b border-border/30 mb-1">AI 写作助手</div>
+            {AI_MENU_ITEMS.map(([action, Icon, label]) => (
+              <button key={action} className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent text-left" onClick={() => triggerAIAction(action, contextMenu.text)}>
+                <Icon className="size-3.5 text-primary" />{label}
+              </button>
+            ))}
             <div className="border-t border-border/30 my-1" />
-            <button
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent text-left"
-              onClick={() => triggerAIAction('headline', contextMenu.text)}
-            >
-              <FileEdit className="size-3.5 text-primary" />
-              起标题
-            </button>
-            <button
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent text-left"
-              onClick={() => triggerAIAction('outline', contextMenu.text)}
-            >
-              <ListOrdered className="size-3.5 text-primary" />
-              列大纲
-            </button>
+            {AI_MENU_HEADS.map(([action, Icon, label]) => (
+              <button key={action} className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent text-left" onClick={() => triggerAIAction(action, contextMenu.text)}>
+                <Icon className="size-3.5 text-primary" />{label}
+              </button>
+            ))}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* 插入链接 / 图片对话框（替代原生 prompt） */}
+      {/* 插入链接 / 图片对话框 */}
       <Dialog open={!!insertDialog} onOpenChange={(open) => !open && setInsertDialog(null)}>
         <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader>
-            <DialogTitle>{insertDialog?.type === 'image' ? '插入图片' : '插入链接'}</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>{insertDialog?.type === 'image' ? '插入图片' : '插入链接'}</DialogTitle></DialogHeader>
           <div className="py-2">
-            <Input
-              value={insertValue}
-              onChange={(e) => setInsertValue(e.target.value)}
-              placeholder="请输入地址，以 http:// 或 https:// 开头"
-              className="h-9"
-              onKeyDown={(e) => e.key === 'Enter' && confirmInsert()}
-              autoFocus
-            />
+            <Input value={insertValue} onChange={(e) => setInsertValue(e.target.value)} placeholder="请输入地址，以 http:// 或 https:// 开头" className="h-9"
+              onKeyDown={(e) => e.key === 'Enter' && confirmInsert()} autoFocus />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setInsertDialog(null)}>
-              取消
-            </Button>
-            <Button
-              disabled={!/^https?:\/\//i.test(insertValue.trim())}
-              onClick={confirmInsert}
-            >
-              <Check className="size-3.5 mr-1" />
-              插入
-            </Button>
+            <Button variant="outline" onClick={() => setInsertDialog(null)}>取消</Button>
+            <Button disabled={!/^https?:\/\//i.test(insertValue.trim())} onClick={confirmInsert}><Check className="size-3.5 mr-1" />插入</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* 加密 / 解锁对话框 */}
-      <Dialog
-        open={!!encryptDialog}
-        onOpenChange={(open) => !open && closeEncryptDialog()}
-      >
+      <Dialog open={!!encryptDialog} onOpenChange={(open) => !open && closeEncryptDialog()}>
         <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader>
-            <DialogTitle>
-              {encryptDialog === 'encrypt' ? '加密笔记' : '解锁笔记'}
-            </DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>{encryptDialog === 'encrypt' ? '加密笔记' : '解锁笔记'}</DialogTitle></DialogHeader>
           <div className="py-2">
             {encryptDialog === 'encrypt' && (
-              <p className="text-xs text-muted-foreground mb-3">
-                设置独立口令加密此笔记。加密后内容仅存密文，口令不落盘，请务必牢记。
-              </p>
+              <p className="text-xs text-muted-foreground mb-3">设置独立口令加密此笔记。加密后内容仅存密文，口令不落盘，请务必牢记。</p>
             )}
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">口令</label>
-                <Input
-                  type="password"
-                  value={encryptPassword}
-                  onChange={(e) => setEncryptPassword(e.target.value)}
-                  placeholder="请输入口令"
-                  className="h-9"
-                  onKeyDown={(e) => e.key === 'Enter' && !encryptBusy && submitEncrypt()}
-                  autoFocus
-                />
+                <Input type="password" value={encryptPassword} onChange={(e) => setEncryptPassword(e.target.value)} placeholder="请输入口令" className="h-9"
+                  onKeyDown={(e) => e.key === 'Enter' && !encryptBusy && submitEncrypt()} autoFocus />
               </div>
               {encryptDialog === 'encrypt' && (
                 <div>
                   <label className="text-xs text-muted-foreground mb-1 block">确认口令</label>
-                  <Input
-                    type="password"
-                    value={encryptConfirm}
-                    onChange={(e) => setEncryptConfirm(e.target.value)}
-                    placeholder="再次输入口令"
-                    className="h-9"
-                    onKeyDown={(e) => e.key === 'Enter' && !encryptBusy && submitEncrypt()}
-                  />
+                  <Input type="password" value={encryptConfirm} onChange={(e) => setEncryptConfirm(e.target.value)} placeholder="再次输入口令" className="h-9"
+                    onKeyDown={(e) => e.key === 'Enter' && !encryptBusy && submitEncrypt()} />
                 </div>
               )}
-              {encryptError && (
-                <div className="text-xs text-destructive">{encryptError}</div>
-              )}
+              {encryptError && <div className="text-xs text-destructive">{encryptError}</div>}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeEncryptDialog} disabled={encryptBusy}>
-              取消
-            </Button>
-            <Button onClick={submitEncrypt} disabled={encryptBusy}>
-              <KeyRound className="size-3.5 mr-1" />
-              {encryptBusy ? '处理中...' : encryptDialog === 'encrypt' ? '加密' : '解锁'}
-            </Button>
+            <Button variant="outline" onClick={closeEncryptDialog} disabled={encryptBusy}>取消</Button>
+            <Button onClick={submitEncrypt} disabled={encryptBusy}><KeyRound className="size-3.5 mr-1" />{encryptBusy ? '处理中...' : encryptDialog === 'encrypt' ? '加密' : '解锁'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

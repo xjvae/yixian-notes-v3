@@ -298,7 +298,7 @@ export default function AppSidebar({
           <AppLogo size={32} />
           <div className="flex-1 min-w-0 leading-tight group-data-[state=collapsed]:hidden">
             <div className="text-sm font-semibold text-sidebar-foreground truncate">一闲笔记</div>
-            <div className="text-[11px] text-muted-foreground truncate">v3.1.0</div>
+            <div className="text-[11px] text-muted-foreground truncate">v3.1.4</div>
           </div>
         </div>
 

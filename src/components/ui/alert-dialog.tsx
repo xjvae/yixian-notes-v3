@@ -46,6 +46,7 @@ function AlertDialogOverlay({
 
 function AlertDialogContent({
   className,
+  children,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content>) {
   return (
@@ -59,6 +60,7 @@ function AlertDialogContent({
         )}
         {...props}
       >
+        {children}
         {/* 玻璃卡片内部光晕，增强层次感（置于内容之下） */}
         <span
           aria-hidden

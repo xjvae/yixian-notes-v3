@@ -48,9 +48,13 @@ export interface ToolButtonProps {
 // --- 工具栏组件 Props ---
 
 export interface EditorToolbarProps {
+  /** TipTap 编辑器实例（驱动格式命令与激活态，null 表示未就绪） */
+  editor: import('@tiptap/react').Editor | null;
   canUndo: boolean;
   canRedo: boolean;
   showHistory: boolean;
+  /** 是否显示目录（TOC）侧栏 */
+  showToc: boolean;
   isFavorite: boolean;
   isDeleted: boolean;
   /** 是否处于 Markdown 源码模式 */
@@ -67,12 +71,13 @@ export interface EditorToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onToggleHistory: () => void;
+  /** 点击目录开关按钮 */
+  onToggleToc: () => void;
   onToggleFavorite: () => void;
   onAIClick: () => void;
   onInsertLink: () => void;
   onInsertImage: () => void;
   onInsertTable: () => void;
-  onInsertCodeBlock: () => void;
   onInsertTodo: () => void;
   onDelete: () => void;
   onRestore: () => void;

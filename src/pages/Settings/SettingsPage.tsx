@@ -1098,7 +1098,7 @@ export default function SettingsPage() {
                     <span className="text-2xl text-primary-foreground font-bold">一</span>
                   </div>
                   <h3 className="text-lg font-bold mb-1">一闲笔记</h3>
-                  <Badge variant="secondary">v3.1.0</Badge>
+                  <Badge variant="secondary">v3.1.4</Badge>
                   <p className="text-sm text-muted-foreground mt-4 max-w-sm mx-auto">
                     一款轻量高效的桌面端笔记应用，致力于为你打造安静专注的书写空间。
                     闲看庭前花开花落，漫随天外云卷云舒。
@@ -1116,12 +1116,12 @@ export default function SettingsPage() {
                 <Separator />
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">版本号</span>
-                  <span className="font-medium">v3.1.0</span>
+                  <span className="font-medium">v3.1.4</span>
                 </div>
                 <Separator />
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">更新日期</span>
-                  <span className="font-medium">2026-09-03</span>
+                  <span className="font-medium">2026-09-07</span>
                 </div>
                 <Separator />
                 <div className="flex justify-between">

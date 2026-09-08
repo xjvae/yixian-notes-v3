@@ -39,3 +39,183 @@
   --tw-prose-invert-th-borders: var(--border);
   --tw-prose-invert-td-borders: var(--border);
 }
+
+/* ── TipTap 富文本编辑器排版 ────────────────────────────── */
+
+.tiptap-editor .ProseMirror {
+  outline: none;
+  min-height: 100%;
+  word-break: break-word;
+}
+
+.tiptap-editor .ProseMirror p.is-editor-empty:first-child::before {
+  color: var(--muted-foreground);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* 代码块 */
+.tiptap-editor .ProseMirror pre {
+  background: var(--muted);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+.tiptap-editor .ProseMirror pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: inherit;
+}
+
+/* 链接 */
+.tiptap-editor .ProseMirror a.tiptap-link,
+.tiptap-editor .ProseMirror a {
+  color: var(--primary);
+  text-decoration: none;
+}
+.tiptap-editor .ProseMirror a:hover {
+  text-decoration: underline;
+}
+
+/* 图片 */
+.tiptap-editor .ProseMirror img.tiptap-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.375rem;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  margin: 0.5rem 0;
+}
+.tiptap-editor .ProseMirror img.ProseMirror-selectednode {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* 引用 */
+.tiptap-editor .ProseMirror blockquote {
+  border-left: 4px solid color-mix(in srgb, var(--primary) 30%, transparent);
+  padding-left: 1rem;
+  padding: 0.125rem 0 0.125rem 1rem;
+  margin: 0.5rem 0;
+  background: color-mix(in srgb, var(--muted) 30%, transparent);
+  border-radius: 0 0.375rem 0.375rem 0;
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+/* 表格 */
+.tiptap-editor .ProseMirror .tiptap-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5rem 0;
+  table-layout: fixed;
+  display: table;
+  border-spacing: 0;
+}
+.tiptap-editor .ProseMirror .tiptap-table th,
+.tiptap-editor .ProseMirror .tiptap-table td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.75rem;
+  min-width: 2rem;
+  position: relative;
+  vertical-align: top;
+  text-align: left;
+}
+.tiptap-editor .ProseMirror .tiptap-table th {
+  background: var(--muted);
+  font-weight: 600;
+}
+.tiptap-editor .ProseMirror .tiptap-table .selectedCell:after {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  content: '';
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
+}
+.tiptap-editor .ProseMirror .tiptap-table .column-resize-handle {
+  background: var(--primary);
+  bottom: 0;
+  position: absolute;
+  right: -2px;
+  top: 0;
+  width: 4px;
+  pointer-events: none;
+}
+.tiptap-editor .ProseMirror .tiptap-resize-cursor {
+  cursor: col-resize;
+}
+/* 选中表格四周的单元格高亮 */
+.tiptap-editor .ProseMirror .cell-selection {
+  position: relative;
+}
+
+/* 任务列表 */
+.tiptap-editor .ProseMirror .tiptap-task-list {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding-left: 0;
+}
+.tiptap-editor .ProseMirror .tiptap-task-item {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+.tiptap-editor .ProseMirror .tiptap-task-item input[type='checkbox'] {
+  margin-top: 0.25rem;
+  accent-color: var(--primary);
+}
+.tiptap-editor .ProseMirror .tiptap-task-item p {
+  margin: 0;
+}
+
+/* 选中文本 / 光标 */
+.tiptap-editor .ProseMirror ::selection {
+  background: color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
+/* 高亮标注（mark） */
+.tiptap-editor .ProseMirror mark {
+  background-color: color-mix(in srgb, var(--warning) 30%, transparent);
+  border-radius: 2px;
+  padding: 0 0.15em;
+  color: inherit;
+}
+.tiptap-editor .ProseMirror mark[data-color] {
+  background-color: var(--warning);
+}
+
+/* 上标 / 下标 */
+.tiptap-editor .ProseMirror sup,
+.tiptap-editor .ProseMirror sub {
+  line-height: 0;
+}
+.tiptap-editor .ProseMirror sup {
+  vertical-align: super;
+  font-size: 0.75em;
+}
+.tiptap-editor .ProseMirror sub {
+  vertical-align: sub;
+  font-size: 0.75em;
+}
+
+/* 分割线（水平规则） */
+.tiptap-editor .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.25rem 0;
+}
+
+/* 内联代码（行内 code mark，区别于代码块） */
+.tiptap-editor .ProseMirror code {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.85em;
+  padding: 0.1em 0.35em;
+}
